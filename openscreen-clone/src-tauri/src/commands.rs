@@ -140,7 +140,7 @@ pub async fn save_exported_video(
         Some(path) => {
             let path_str = path.to_string();
             let decoded = BASE64.decode(&video_data).map_err(|e| e.to_string())?;
-            fs::write(PathBuf::from(&path), decoded).map_err(|e| e.to_string())?;
+            fs::write(&path_str, decoded).map_err(|e| e.to_string())?;
             Ok(serde_json::json!({
                 "success": true,
                 "path": path_str,
@@ -203,7 +203,7 @@ pub async fn save_project_file(
     match result {
         Some(path) => {
             let path_str = path.to_string();
-            fs::write(PathBuf::from(&path), serde_json::to_string_pretty(&project_data).unwrap())
+            fs::write(&path_str, serde_json::to_string_pretty(&project_data).unwrap())
                 .map_err(|e| e.to_string())?;
             *state.current_project_path.lock().unwrap() = Some(path_str.clone());
             Ok(serde_json::json!({
@@ -235,7 +235,7 @@ pub async fn load_project_file(
     match result {
         Some(path) => {
             let path_str = path.to_string();
-            let content = fs::read_to_string(PathBuf::from(&path)).map_err(|e| e.to_string())?;
+            let content = fs::read_to_string(&path_str).map_err(|e| e.to_string())?;
             let project: Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
             state.approve_path(&path_str);
             *state.current_project_path.lock().unwrap() = Some(path_str.clone());
