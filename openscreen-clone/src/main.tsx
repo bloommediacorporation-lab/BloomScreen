@@ -101,6 +101,9 @@ if (typeof window !== 'undefined') {
       setLocale: async () => {},
       hudOverlayHide: async () => tauriInvoke("hud_overlay_hide"),
       hudOverlayClose: async () => tauriInvoke("hud_overlay_close"),
+      windowMinimize: async () => tauriInvoke("window_minimize"),
+      windowMaximize: async () => tauriInvoke("window_maximize"),
+      windowClose: async () => tauriInvoke("window_close"),
     } as any;
   } else {
     // Running in browser — use mocks
@@ -154,7 +157,11 @@ if (typeof window !== 'undefined') {
       setHasUnsavedChanges: () => {},
       onRequestSaveBeforeClose: () => () => {},
       setLocale: async () => {},
-    } as any;
+      hudOverlayHide: async () => ({ success: true }),
+      hudOverlayClose: async () => ({ success: true }),
+      windowMinimize: async () => ({ success: true }),
+      windowMaximize: async () => ({ success: true }),
+      windowClose: async () => ({ success: true }),
   }
 }
 

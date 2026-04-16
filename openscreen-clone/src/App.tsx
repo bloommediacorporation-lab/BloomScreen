@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { LaunchWindow } from "./components/launch/LaunchWindow";
-import { SourceSelector } from "./components/launch/SourceSelector";
+import { TitleBar } from "./components/home/TitleBar";
+import { HomeScreen } from "./components/home/HomeScreen";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { ShortcutsConfigDialog } from "./components/video-editor/ShortcutsConfigDialog";
@@ -15,11 +15,6 @@ export default function App() {
 		const params = new URLSearchParams(window.location.search);
 		const type = params.get("windowType") || "";
 		setWindowType(type);
-		if (type === "hud-overlay" || type === "source-selector") {
-			document.body.style.background = "transparent";
-			document.documentElement.style.background = "transparent";
-			document.getElementById("root")?.style.setProperty("background", "transparent");
-		}
 
 		// Load custom fonts on app initialization
 		loadAllCustomFonts().catch((error) => {
@@ -30,9 +25,15 @@ export default function App() {
 	const content = (() => {
 		switch (windowType) {
 			case "hud-overlay":
-				return <LaunchWindow />;
+				// Legacy HUD — redirect to home behavior
+				return (
+					<div className="flex flex-col h-screen bg-[#0a0a0f] text-white">
+						<TitleBar />
+						<HomeScreen />
+					</div>
+				);
 			case "source-selector":
-				return <SourceSelector />;
+				return <div className="w-full h-full bg-[#0a0a0f] text-white p-4">Source selector coming soon...</div>;
 			case "editor":
 				return (
 					<ShortcutsProvider>
@@ -41,9 +42,11 @@ export default function App() {
 					</ShortcutsProvider>
 				);
 			default:
+				// Main window — Home screen with custom title bar
 				return (
-					<div className="w-full h-full bg-background text-foreground">
-						<h1>Openscreen</h1>
+					<div className="flex flex-col h-screen bg-[#0a0a0f] text-white">
+						<TitleBar />
+						<HomeScreen />
 					</div>
 				);
 		}

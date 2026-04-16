@@ -672,3 +672,25 @@ pub fn hud_overlay_close(app: tauri::AppHandle) -> Result<Value, String> {
     app.exit(0);
     Ok(serde_json::json!({ "success": true }))
 }
+
+#[tauri::command]
+pub fn window_minimize(app: tauri::AppHandle) -> Result<Value, String> {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.minimize();
+    }
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+pub fn window_maximize(app: tauri::AppHandle) -> Result<Value, String> {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.toggle_maximize();
+    }
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+pub fn window_close(app: tauri::AppHandle) -> Result<Value, String> {
+    app.exit(0);
+    Ok(serde_json::json!({ "success": true }))
+}

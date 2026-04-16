@@ -50,6 +50,9 @@ pub fn run() {
             commands::start_new_recording_window,
             commands::hud_overlay_hide,
             commands::hud_overlay_close,
+            commands::window_minimize,
+            commands::window_maximize,
+            commands::window_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

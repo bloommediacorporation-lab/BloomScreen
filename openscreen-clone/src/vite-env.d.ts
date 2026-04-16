@@ -124,5 +124,8 @@ interface Window {
 		setLocale: (locale: string) => Promise<void>;
 		hudOverlayHide: () => Promise<{ success: boolean }>;
 		hudOverlayClose: () => Promise<{ success: boolean }>;
+		windowMinimize: () => Promise<{ success: boolean }>;
+		windowMaximize: () => Promise<{ success: boolean }>;
+		windowClose: () => Promise<{ success: boolean }>;
 	};
 }
