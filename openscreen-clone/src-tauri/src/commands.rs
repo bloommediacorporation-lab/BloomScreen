@@ -726,18 +726,17 @@ pub async fn native_start_recording(
 
     // Get screen dimensions
     let monitors = xcap::Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-    let monitor = monitors.first().ok_or("No monitor found")?;
-    let width = monitor.width();
-    let height = monitor.height();
+    let monitor = monitors.first().ok_or("No monitor found")?.clone();
+    let width = monitor.width().map_err(|e| format!("Width error: {}", e))? as usize;
+    let height = monitor.height().map_err(|e| format!("Height error: {}", e))? as usize;
 
     log::info!("Starting native recording: {}x{} -> {}", width, height, output_path);
 
     // Spawn recording in background thread
     let output_clone = output_path.clone();
-    let recording_active = NATIVE_RECORDING_ACTIVE.clone();
 
     std::thread::spawn(move || {
-        match run_frame_capture(&output_clone, width, height, &recording_active) {
+        match run_frame_capture(&output_clone, width, height) {
             Ok(_) => log::info!("Recording completed: {}", output_clone),
             Err(e) => log::error!("Recording error: {}", e),
         }
@@ -753,10 +752,9 @@ fn run_frame_capture(
     output_path: &str,
     width: usize,
     height: usize,
-    active: &AtomicBool,
 ) -> Result<(), String> {
     use ffmpeg_sidecar::command::FfmpegCommand;
-    use ffmpeg_sidecar::event::FfmpegEvent;
+    use std::io::Write;
 
     let fps = 30;
 
@@ -779,12 +777,12 @@ fn run_frame_capture(
         .map_err(|e| format!("FFmpeg spawn failed: {}", e))?;
 
     let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
-    let monitor = monitors.first().ok_or("No monitor")?;
+    let monitor = monitors.first().ok_or("No monitor")?.clone();
 
     let frame_interval = Duration::from_millis(1000 / fps as u64);
     let mut last_capture = Instant::now();
 
-    while active.load(Ordering::SeqCst) {
+    while NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
         let elapsed = last_capture.elapsed();
         if elapsed < frame_interval {
             std::thread::sleep(frame_interval - elapsed);
@@ -793,24 +791,29 @@ fn run_frame_capture(
 
         match monitor.capture_image() {
             Ok(image) => {
-                let raw_rgba = image.to_rgba8();
-                let raw_bytes = raw_rgba.as_raw();
+                // xcap returns RgbaImage directly — just get the raw bytes
+                let raw_bytes = image.as_raw();
 
-                // ffmpeg STDIN
-                if let Err(e) = ffmpeg.write_stdin(raw_bytes) {
-                    log::error!("FFmpeg write error: {}", e);
-                    break;
+                // Write to ffmpeg stdin
+                if let Some(mut stdin) = ffmpeg.take_stdin() {
+                    if let Err(e) = stdin.write_all(raw_bytes) {
+                        log::error!("FFmpeg write error: {}", e);
+                        break;
+                    }
+                    drop(stdin);
                 }
             }
             Err(e) => {
                 log::warn!("Frame capture failed: {}", e);
-                // Keep trying — occasional frame drops are OK
             }
         }
     }
 
-    // Graceful shutdown
-    drop(ffmpeg); // Close stdin → ffmpeg finalizes
+    // Graceful shutdown — close stdin to tell ffmpeg to finalize
+    if let Some(mut stdin) = ffmpeg.take_stdin() {
+        let _ = stdin.flush();
+    }
+    drop(ffmpeg);
     Ok(())
 }
 
@@ -869,7 +872,7 @@ pub async fn native_stop_recording(
         *state.current_project_path.lock().unwrap() = None;
 
         // Emit event to frontend so it can react
-        let _ = app.emit("recording-stopped", serde_json::json!({
+        let _ = tauri::Emitter::emit(&app, "recording-stopped", serde_json::json!({
             "success": true,
             "path": path_str
         }));
