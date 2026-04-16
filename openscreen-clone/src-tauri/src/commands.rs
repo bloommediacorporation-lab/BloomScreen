@@ -684,7 +684,8 @@ pub fn window_minimize(app: tauri::AppHandle) -> Result<Value, String> {
 #[tauri::command]
 pub fn window_maximize(app: tauri::AppHandle) -> Result<Value, String> {
     if let Some(win) = app.get_webview_window("main") {
-        let _ = win.toggle_maximize();
+                let is_max = win.is_maximized().unwrap_or(false);
+        if is_max { let _ = win.unmaximize(); } else { let _ = win.maximize(); }
     }
     Ok(serde_json::json!({ "success": true }))
 }
