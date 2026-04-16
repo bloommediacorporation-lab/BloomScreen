@@ -1674,6 +1674,20 @@ export default function VideoEditor() {
 		}
 	}, []);
 
+	const commandMenuItems: CommandMenuItem[] = useMemo(
+		() => [
+			{ id: "new-recording", label: "New Recording", icon: "🎥", shortcut: "⌘N", action: () => setShowNewRecordingDialog(true) },
+			{ id: "export", label: "Export Video", icon: "📦", shortcut: "⌘E", action: () => setShowExportDialog(true) },
+			{ id: "toggle-zoom", label: "Toggle Auto-Zoom", icon: "🔍", action: () => { /* toggle zoom behavior */ } },
+			{ id: "toggle-webcam", label: "Toggle Webcam", icon: "📹", action: () => { /* toggle webcam */ } },
+			{ id: "toggle-shortcuts", label: `${showShortcutsOverlay ? "Hide" : "Show"} Keyboard Shortcuts`, icon: "⌨️", action: () => setShowShortcutsOverlay((v) => !v) },
+			{ id: "toggle-ripples", label: `${showClickRipples ? "Hide" : "Show"} Click Ripples`, icon: "💧", action: () => setShowClickRipples((v) => !v) },
+			{ id: "undo", label: "Undo", icon: "↩️", shortcut: "⌘Z", action: undo },
+			{ id: "redo", label: "Redo", icon: "↪️", shortcut: "⌘⇧Z", action: redo },
+		],
+		[undo, redo, showShortcutsOverlay, showClickRipples],
+	);
+
 	if (loading) {
 		return (
 			<div className="flex items-center justify-center h-screen bg-background">
@@ -1697,20 +1711,6 @@ export default function VideoEditor() {
 			</div>
 		);
 	}
-
-	const commandMenuItems: CommandMenuItem[] = useMemo(
-		() => [
-			{ id: "new-recording", label: "New Recording", icon: "🎥", shortcut: "⌘N", action: () => setShowNewRecordingDialog(true) },
-			{ id: "export", label: "Export Video", icon: "📦", shortcut: "⌘E", action: () => setShowExportDialog(true) },
-			{ id: "toggle-zoom", label: "Toggle Auto-Zoom", icon: "🔍", action: () => { /* toggle zoom behavior */ } },
-			{ id: "toggle-webcam", label: "Toggle Webcam", icon: "📹", action: () => { /* toggle webcam */ } },
-			{ id: "toggle-shortcuts", label: `${showShortcutsOverlay ? "Hide" : "Show"} Keyboard Shortcuts`, icon: "⌨️", action: () => setShowShortcutsOverlay((v) => !v) },
-			{ id: "toggle-ripples", label: `${showClickRipples ? "Hide" : "Show"} Click Ripples`, icon: "💧", action: () => setShowClickRipples((v) => !v) },
-			{ id: "undo", label: "Undo", icon: "↩️", shortcut: "⌘Z", action: undo },
-			{ id: "redo", label: "Redo", icon: "↪️", shortcut: "⌘⇧Z", action: redo },
-		],
-		[undo, redo, showShortcutsOverlay, showClickRipples],
-	);
 
 	return (
 		<div className="flex flex-col h-screen bg-[#09090b] text-slate-200 overflow-hidden selection:bg-[#5D5FEF]/30">
