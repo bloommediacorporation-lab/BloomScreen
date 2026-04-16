@@ -14,18 +14,18 @@
 	},
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc && vite build && electron-builder",
+		"tauri": "tauri",
+		"tauri:dev": "tauri dev",
+		"build": "tsc && vite build && tauri build",
+		"build:mac": "tsc && vite build && tauri build --target universal-apple-darwin",
+		"build-vite": "tsc && vite build",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write .",
 		"i18n:check": "node scripts/i18n-check.mjs",
 		"preview": "vite preview",
-		"build:mac": "tsc && vite build && electron-builder --mac",
-		"build:win": "tsc && vite build && electron-builder --win",
-		"build:linux": "tsc && vite build && electron-builder --linux AppImage deb",
 		"test": "vitest --run",
 		"test:watch": "vitest",
-		"build-vite": "tsc && vite build",
 		"test:browser": "vitest --config vitest.browser.config.ts --run",
 		"test:browser:install": "playwright install --with-deps chromium-headless-shell",
 		"test:e2e": "playwright test"
@@ -73,6 +73,7 @@
 		"web-demuxer": "^4.0.0"
 	},
 	"devDependencies": {
+		"@tauri-apps/cli": "^2.10.1",
 		"@types/node": "^25.0.3",
 		"@types/react": "^18.2.64",
 		"@types/react-dom": "^18.2.21",
@@ -85,7 +86,6 @@
 		"typescript": "^5.2.2",
 		"vite": "^5.1.6"
 	},
-	"main": "dist-electron/main.js",
 	"lint-staged": {
 		"*.{ts,tsx,js,jsx,mts,cts,json}": "biome check --no-errors-on-unmatched"
 	}
