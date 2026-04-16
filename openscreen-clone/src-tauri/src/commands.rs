@@ -695,3 +695,201 @@ pub fn window_close(app: tauri::AppHandle) -> Result<Value, String> {
     app.exit(0);
     Ok(serde_json::json!({ "success": true }))
 }
+
+// ─── Native Screen Recording Commands (macOS) ──────────────────
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+static NATIVE_RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Start native screen recording using frame capture + ffmpeg encoding
+#[tauri::command]
+pub async fn native_start_recording(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Value, String> {
+    if NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
+        return Err("Already recording".to_string());
+    }
+
+    NATIVE_RECORDING_ACTIVE.store(true, Ordering::SeqCst);
+    *state.recording_active.lock().unwrap() = true;
+    state.cursor_samples.lock().unwrap().clear();
+
+    let recordings_dir = AppState::recordings_dir();
+    fs::create_dir_all(&recordings_dir).map_err(|e| e.to_string())?;
+    let output_path = recordings_dir
+        .join(format!("recording-{}.mp4", chrono::Utc::now().timestamp_millis()))
+        .to_string_lossy()
+        .to_string();
+
+    // Get screen dimensions
+    let monitors = xcap::Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+    let monitor = monitors.first().ok_or("No monitor found")?;
+    let width = monitor.width();
+    let height = monitor.height();
+
+    log::info!("Starting native recording: {}x{} -> {}", width, height, output_path);
+
+    // Spawn recording in background thread
+    let output_clone = output_path.clone();
+    let recording_active = NATIVE_RECORDING_ACTIVE.clone();
+
+    std::thread::spawn(move || {
+        match run_frame_capture(&output_clone, width, height, &recording_active) {
+            Ok(_) => log::info!("Recording completed: {}", output_clone),
+            Err(e) => log::error!("Recording error: {}", e),
+        }
+    });
+
+    Ok(serde_json::json!({
+        "success": true,
+        "outputPath": output_path
+    }))
+}
+
+fn run_frame_capture(
+    output_path: &str,
+    width: usize,
+    height: usize,
+    active: &AtomicBool,
+) -> Result<(), String> {
+    use ffmpeg_sidecar::command::FfmpegCommand;
+    use ffmpeg_sidecar::event::FfmpegEvent;
+
+    let fps = 30;
+
+    let mut ffmpeg = FfmpegCommand::new()
+        .args([
+            "-y",
+            "-f", "rawvideo",
+            "-pix_fmt", "rgba",
+            "-s", &format!("{}x{}", width, height),
+            "-r", &fps.to_string(),
+            "-i", "pipe:0",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            output_path,
+        ])
+        .spawn()
+        .map_err(|e| format!("FFmpeg spawn failed: {}", e))?;
+
+    let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
+    let monitor = monitors.first().ok_or("No monitor")?;
+
+    let frame_interval = Duration::from_millis(1000 / fps as u64);
+    let mut last_capture = Instant::now();
+
+    while active.load(Ordering::SeqCst) {
+        let elapsed = last_capture.elapsed();
+        if elapsed < frame_interval {
+            std::thread::sleep(frame_interval - elapsed);
+        }
+        last_capture = Instant::now();
+
+        match monitor.capture_image() {
+            Ok(image) => {
+                let raw_rgba = image.to_rgba8();
+                let raw_bytes = raw_rgba.as_raw();
+
+                // ffmpeg STDIN
+                if let Err(e) = ffmpeg.write_stdin(raw_bytes) {
+                    log::error!("FFmpeg write error: {}", e);
+                    break;
+                }
+            }
+            Err(e) => {
+                log::warn!("Frame capture failed: {}", e);
+                // Keep trying — occasional frame drops are OK
+            }
+        }
+    }
+
+    // Graceful shutdown
+    drop(ffmpeg); // Close stdin → ffmpeg finalizes
+    Ok(())
+}
+
+/// Stop native screen recording
+#[tauri::command]
+pub async fn native_stop_recording(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<Value, String> {
+    if !NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
+        return Err("Not recording".to_string());
+    }
+
+    NATIVE_RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+    *state.recording_active.lock().unwrap() = false;
+
+    // Wait a moment for ffmpeg to finalize
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    // Find the most recent recording
+    let recordings_dir = AppState::recordings_dir();
+    let mut newest: Option<std::path::PathBuf> = None;
+    let mut newest_time: i64 = 0;
+
+    if let Ok(entries) = fs::read_dir(&recordings_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "mp4" || ext == "webm" {
+                    if let Ok(meta) = fs::metadata(&path) {
+                        if let Ok(modified) = meta.modified() {
+                            let time: i64 = modified
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as i64;
+                            if time > newest_time {
+                                newest_time = time;
+                                newest = Some(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(video_path) = newest {
+        let path_str = video_path.to_string_lossy().to_string();
+
+        let session = RecordingSession {
+            screen_video_path: path_str.clone(),
+            webcam_video_path: None,
+            created_at: chrono::Utc::now().timestamp_millis(),
+        };
+        *state.current_recording_session.lock().unwrap() = Some(session);
+        *state.current_project_path.lock().unwrap() = None;
+
+        // Emit event to frontend so it can react
+        let _ = app.emit("recording-stopped", serde_json::json!({
+            "success": true,
+            "path": path_str
+        }));
+
+        return Ok(serde_json::json!({
+            "success": true,
+            "path": path_str
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "success": false,
+        "message": "No recording file found"
+    }))
+}
+
+/// Get native recording status
+#[tauri::command]
+pub fn native_recording_status() -> Result<Value, String> {
+    Ok(serde_json::json!({
+        "recording": NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst)
+    }))
+}

@@ -9,8 +9,6 @@ export function HomeScreen() {
 	const [recording, setRecording] = useState(false);
 	const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-	const streamRef = useRef<MediaStream | null>(null);
 	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const startTimeRef = useRef<number>(0);
 
@@ -30,144 +28,60 @@ export function HomeScreen() {
 		}, 250);
 	}, []);
 
-	const cleanup = useCallback(() => {
-		if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-			try { mediaRecorderRef.current.stop(); } catch {}
-		}
-		mediaRecorderRef.current = null;
-		if (streamRef.current) {
-			streamRef.current.getTracks().forEach(t => t.stop());
-			streamRef.current = null;
-		}
-		stopTimer();
-		setRecording(false);
-		setElapsedSeconds(0);
-	}, [stopTimer]);
-
-	// Cleanup on unmount
+	// Listen for recording-stopped event from Rust backend
 	useEffect(() => {
+		const unlisten = (window as any).__TAURI_INTERNALS__?.event?.listen?.(
+			"recording-stopped",
+			async (event: any) => {
+				const { path } = event.payload || {};
+				if (path) {
+					await window.electronAPI?.setCurrentVideoPath?.(path);
+					await window.electronAPI?.switchToEditor?.();
+				}
+			}
+		);
 		return () => {
-			cleanup();
+			unlisten?.then?.((fn: () => void) => fn());
 		};
-	}, [cleanup]);
+	}, []);
+
+	const invoke = async (cmd: string, args?: Record<string, unknown>) => {
+		if ((window as any).__TAURI_INTERNALS__) {
+			return (window as any).__TAURI_INTERNALS__.invoke(cmd, args);
+		}
+		throw new Error("Not running in Tauri");
+	};
 
 	const startRecording = async () => {
 		try {
-			// Request screen capture via standard web API
-			// This works in Tauri on macOS (WKWebView supports getDisplayMedia)
-			const displayStream = await navigator.mediaDevices.getDisplayMedia({
-				video: {
-					width: { ideal: 3840 },
-					height: { ideal: 2160 },
-					frameRate: { ideal: 60, max: 60 },
-				},
-				audio: audioEnabled,
-			});
-
-			// If user clicks "Stop sharing" in browser picker, treat as stop
-			displayStream.getVideoTracks()[0].addEventListener("ended", () => {
-				stopRecording();
-			});
-
-			// Combine with microphone if enabled
-			const tracks = [...displayStream.getTracks()];
-
-			if (micEnabled) {
-				try {
-					const micStream = await navigator.mediaDevices.getUserMedia({
-						audio: {
-							echoCancellation: true,
-							noiseSuppression: true,
-							autoGainControl: true,
-						},
-					});
-					tracks.push(...micStream.getAudioTracks());
-					// Store ref for cleanup
-					micStream.getTracks().forEach(t => t.addEventListener("ended", () => {}));
-				} catch (err) {
-					console.warn("Mic access denied, continuing without mic:", err);
-					toast.error("Microfonul nu e disponibil — înregistrăm fără audio");
-				}
+			const result = await invoke("native_start_recording");
+			if (result.success) {
+				setRecording(true);
+				startTimer();
 			}
-
-			const combinedStream = new MediaStream(tracks);
-			streamRef.current = combinedStream;
-
-			// Select best codec
-			const mimeType = [
-				"video/webm;codecs=vp9,opus",
-				"video/webm;codecs=vp8,opus",
-				"video/webm;codecs=h264,opus",
-				"video/webm",
-			].find(t => MediaRecorder.isTypeSupported(t)) ?? "video/webm";
-
-			const chunks: Blob[] = [];
-			const recorder = new MediaRecorder(combinedStream, {
-				mimeType,
-				videoBitsPerSecond: 20_000_000,
-			});
-
-			recorder.ondataavailable = (e) => {
-				if (e.data.size > 0) chunks.push(e.data);
-			};
-
-			recorder.onstop = async () => {
-				if (chunks.length === 0) return;
-
-				const blob = new Blob(chunks, { type: mimeType });
-				const buffer = await blob.arrayBuffer();
-
-				try {
-					const result = await window.electronAPI?.storeRecordedVideo?.(buffer, `recording-${Date.now()}.webm`);
-					if (result?.success) {
-						if (result.path) {
-							await window.electronAPI?.setCurrentVideoPath?.(result.path);
-						}
-						await window.electronAPI?.switchToEditor?.();
-					}
-				} catch (err) {
-					console.error("Failed to save recording:", err);
-					toast.error("Nu am putut salva înregistrarea");
-				}
-			};
-
-			recorder.start(1000);
-			mediaRecorderRef.current = recorder;
-
-			// Notify backend
-			await window.electronAPI?.setRecordingState?.(true);
-
-			setRecording(true);
-			startTimer();
 		} catch (err: any) {
 			console.error("Recording failed:", err);
-			if (err.name === "NotAllowedError" || err.message?.includes("Permission")) {
-				toast.error("Permisiune refuzată — permite screen capture în System Preferences > Screen Recording");
-			} else {
-				toast.error(`Eroare la înregistrare: ${err.message || err}`);
-			}
-			cleanup();
+			toast.error(`Eroare la înregistrare: ${err?.message || err}`);
 		}
 	};
 
 	const stopRecording = useCallback(async () => {
-		const recorder = mediaRecorderRef.current;
-		const stream = streamRef.current;
-
-		if (!recorder) return;
-
-		// Stop recorder — this triggers onstop which saves + switches to editor
-		if (recorder.state === "recording" || recorder.state === "paused") {
-			recorder.stop();
+		try {
+			const result = await invoke("native_stop_recording");
+			if (result.success && result.path) {
+				await window.electronAPI?.setCurrentVideoPath?.(result.path);
+				await window.electronAPI?.switchToEditor?.();
+			} else if (!result.success) {
+				toast.error(result.message || "Nu s-a găsit fișierul de înregistrare");
+			}
+		} catch (err: any) {
+			console.error("Stop recording failed:", err);
+			toast.error(`Eroare la oprire: ${err?.message || err}`);
+		} finally {
+			stopTimer();
+			setRecording(false);
+			setElapsedSeconds(0);
 		}
-
-		if (stream) {
-			stream.getTracks().forEach(t => t.stop());
-		}
-
-		await window.electronAPI?.setRecordingState?.(false);
-		stopTimer();
-		setRecording(false);
 	}, [stopTimer]);
 
 	const openVideoFile = async () => {

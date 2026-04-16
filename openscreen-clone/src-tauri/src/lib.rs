@@ -53,6 +53,10 @@ pub fn run() {
             commands::window_minimize,
             commands::window_maximize,
             commands::window_close,
+            // Native screen recording
+            commands::native_start_recording,
+            commands::native_stop_recording,
+            commands::native_recording_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
