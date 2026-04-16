@@ -106,7 +106,7 @@ function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value));
 }
 
-function isFileUrl(value: string): boolean {
+export function isFileUrl(value: string): boolean {
 	return /^file:\/\//i.test(value);
 }
 

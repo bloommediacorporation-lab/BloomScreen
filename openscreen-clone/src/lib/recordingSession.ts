@@ -32,14 +32,14 @@ export function normalizeProjectMedia(candidate: unknown): ProjectMedia | null {
 		return null;
 	}
 
-	const raw = candidate as Partial<ProjectMedia>;
-	const screenVideoPath = normalizePath(raw.screenVideoPath);
+	const raw = candidate as Record<string, unknown>;
+	const screenVideoPath = normalizePath(raw.screenVideoPath ?? raw.screen_video_path);
 
 	if (!screenVideoPath) {
 		return null;
 	}
 
-	const webcamVideoPath = normalizePath(raw.webcamVideoPath);
+	const webcamVideoPath = normalizePath(raw.webcamVideoPath ?? raw.webcam_video_path);
 
 	return webcamVideoPath
 		? { screenVideoPath, webcamVideoPath }
@@ -53,17 +53,19 @@ export function normalizeRecordingSession(candidate: unknown): RecordingSession 
 		return null;
 	}
 
-	const raw = candidate as Partial<RecordingSession>;
+	const raw = candidate as Record<string, unknown>;
 	const media = normalizeProjectMedia(raw);
 	if (!media) {
 		return null;
 	}
 
+	const createdAt = raw.createdAt ?? raw.created_at;
+
 	return {
 		...media,
 		createdAt:
-			typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
-				? raw.createdAt
+			typeof createdAt === "number" && Number.isFinite(createdAt)
+				? createdAt
 				: Date.now(),
 	};
 }

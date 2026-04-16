@@ -19,6 +19,7 @@ import {
 	useState,
 } from "react";
 import { getAssetPath } from "@/lib/assetPath";
+import { fromFileUrl, isFileUrl } from "./projectPersistence";
 import {
 	getWebcamLayoutCssBoxShadow,
 	type Size,
@@ -130,6 +131,25 @@ export interface VideoPlaybackRef {
 	pause: () => void;
 }
 
+function toPlayableMediaSrc(input: string): string {
+	if (!input) return "";
+	if (/^(https?:|blob:|data:)/i.test(input)) {
+		return input;
+	}
+
+	const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
+	const internalConvert = (window as any).__TAURI_INTERNALS__?.convertFileSrc;
+	if (typeof internalConvert === "function") {
+		try {
+			return internalConvert(rawPath);
+		} catch {
+			// fall through
+		}
+	}
+
+	return isFileUrl(input) ? input : `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+}
+
 const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 	(
 		{
@@ -183,6 +203,12 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		},
 		ref,
 	) => {
+		const playableVideoPath = useMemo(() => toPlayableMediaSrc(videoPath), [videoPath]);
+		const playableWebcamVideoPath = useMemo(
+			() => (webcamVideoPath ? toPlayableMediaSrc(webcamVideoPath) : undefined),
+			[webcamVideoPath],
+		);
+
 		const videoRef = useRef<HTMLVideoElement | null>(null);
 		const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
 		const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1128,7 +1154,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				setWebcamDimensions(null);
 				return;
 			}
@@ -1147,11 +1173,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			return () => {
 				webcamVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
 			};
-		}, [webcamVideoPath]);
+		}, [playableWebcamVideoPath]);
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				return;
 			}
 
@@ -1176,17 +1202,17 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			webcamVideo.play().catch(() => {
 				// Ignore webcam autoplay restoration failures.
 			});
-		}, [currentTime, isPlaying, speedRegions, webcamVideoPath]);
+		}, [currentTime, isPlaying, speedRegions, playableWebcamVideoPath]);
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				return;
 			}
 
 			webcamVideo.pause();
 			webcamVideo.currentTime = 0;
-		}, [webcamVideoPath]);
+		}, [playableWebcamVideoPath]);
 
 		useEffect(() => {
 			let mounted = true;
@@ -1295,7 +1321,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 								: "none",
 					}}
 				/>
-				{webcamVideoPath &&
+				{playableWebcamVideoPath &&
 					(() => {
 						const clipPath = getCssClipPath(webcamLayout?.maskShape ?? "rectangle");
 						const useClipPath = !!clipPath;
@@ -1317,7 +1343,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 							>
 								<video
 									ref={webcamVideoRef}
-									src={webcamVideoPath}
+									src={playableWebcamVideoPath}
 									className={`w-full h-full object-cover ${webcamLayoutPreset === "picture-in-picture" ? "cursor-grab active:cursor-grabbing" : "pointer-events-none"}`}
 									style={{
 										borderRadius: useClipPath ? 0 : (webcamLayout?.borderRadius ?? 0),
@@ -1480,7 +1506,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				/>
 				<video
 					ref={videoRef}
-					src={videoPath}
+					src={playableVideoPath}
 					className="hidden"
 					preload="metadata"
 					playsInline

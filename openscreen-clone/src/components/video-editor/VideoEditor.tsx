@@ -29,7 +29,7 @@ import {
 	VideoExporter,
 } from "@/lib/exporter";
 import { computeFrameStepTime } from "@/lib/frameStep";
-import type { ProjectMedia } from "@/lib/recordingSession";
+import { normalizeRecordingSession, type ProjectMedia } from "@/lib/recordingSession";
 import { matchesShortcut } from "@/lib/shortcuts";
 import { loadUserPreferences, saveUserPreferences } from "@/lib/userPreferences";
 import {
@@ -47,7 +47,6 @@ import {
 	hasProjectUnsavedChanges,
 	normalizeProjectEditor,
 	resolveProjectMedia,
-	toFileUrl,
 	validateProjectData,
 } from "./projectPersistence";
 import { SettingsPanel } from "./SettingsPanel";
@@ -219,9 +218,9 @@ export default function VideoEditor() {
 
 			setError(null);
 			setVideoSourcePath(sourcePath);
-			setVideoPath(toFileUrl(sourcePath));
+			setVideoPath(sourcePath);
 			setWebcamVideoSourcePath(webcamSourcePath);
-			setWebcamVideoPath(webcamSourcePath ? toFileUrl(webcamSourcePath) : null);
+			setWebcamVideoPath(webcamSourcePath);
 			setCurrentProjectPath(path ?? null);
 
 			pushState({
@@ -357,16 +356,19 @@ export default function VideoEditor() {
 				}
 
 				const currentSessionResult = await window.electronAPI.getCurrentRecordingSession();
-				if (currentSessionResult.success && currentSessionResult.session) {
-					const session = currentSessionResult.session;
+				const session =
+					currentSessionResult.success && currentSessionResult.session
+						? normalizeRecordingSession(currentSessionResult.session)
+						: null;
+				if (session) {
 					const sourcePath = fromFileUrl(session.screenVideoPath);
 					const webcamSourcePath = session.webcamVideoPath
 						? fromFileUrl(session.webcamVideoPath)
 						: null;
 					setVideoSourcePath(sourcePath);
-					setVideoPath(toFileUrl(sourcePath));
+					setVideoPath(sourcePath);
 					setWebcamVideoSourcePath(webcamSourcePath);
-					setWebcamVideoPath(webcamSourcePath ? toFileUrl(webcamSourcePath) : null);
+					setWebcamVideoPath(webcamSourcePath);
 					setCurrentProjectPath(null);
 					setLastSavedSnapshot(
 						createProjectSnapshot(
@@ -383,7 +385,7 @@ export default function VideoEditor() {
 				if (result.success && result.path) {
 					const sourcePath = fromFileUrl(result.path);
 					setVideoSourcePath(sourcePath);
-					setVideoPath(toFileUrl(sourcePath));
+					setVideoPath(sourcePath);
 					setWebcamVideoSourcePath(null);
 					setWebcamVideoPath(null);
 					setCurrentProjectPath(null);
