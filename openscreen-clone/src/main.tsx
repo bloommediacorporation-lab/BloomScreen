@@ -6,7 +6,7 @@ import "./index.css";
 
 // Mock cursor telemetry generator (used in web dev mode)
 function generateMockCursorTelemetry() {
-  const samples = [];
+  const samples: Array<{ timeMs: number; cx: number; cy: number }> = [];
   const durationMs = 120000;
   let cx = 0.5;
   let cy = 0.5;
@@ -50,7 +50,7 @@ async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise
 
 // Set up electronAPI bridge
 if (typeof window !== 'undefined') {
-  if ((window as any).__TAURI__) {
+  if ((window as any).__TAURI_INTERNALS__?.invoke) {
     // Running inside Tauri — bridge to Rust commands
     window.electronAPI = {
       getSources: async () => tauriInvoke("get_sources"),

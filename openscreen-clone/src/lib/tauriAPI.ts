@@ -4,10 +4,15 @@
 
 type InvokeResult = Record<string, unknown>;
 
+type TauriInternals = {
+  invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<InvokeResult>;
+  convertFileSrc?: (filePath: string) => string;
+};
+
 async function invoke(cmd: string, args?: Record<string, unknown>): Promise<InvokeResult> {
-  if (window.__TAURI__) {
-    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-    return tauriInvoke(cmd, args);
+  const tauri = (window as Window & { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__;
+  if (tauri?.invoke) {
+    return tauri.invoke(cmd, args);
   }
   // Web fallback mock
   console.log(`[Tauri Mock] ${cmd}`, args);

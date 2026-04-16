@@ -1,4 +1,5 @@
-import { tauriAPI } from "./lib/tauriAPI";
+import type { RecordingSession, StoreRecordedSessionInput } from "./recordingSession";
+import { tauriAPI } from "./tauriAPI";
 
 // Shim: bridge window.electronAPI → tauriAPI for the Tauri runtime
 // This lets existing hooks (useScreenRecorder, etc.) work without rewriting them all.
@@ -43,12 +44,24 @@ if (!window.electronAPI) {
 
 		storeRecordedVideo: async (videoData, fileName) => {
 			const result = await tauriAPI.storeRecordedVideo(videoData, fileName);
-			return result as { success: boolean; path?: string; session?: unknown; message?: string; error?: string };
+			return result as {
+				success: boolean;
+				path?: string;
+				session?: RecordingSession;
+				message?: string;
+				error?: string;
+			};
 		},
 
-		storeRecordedSession: async (payload) => {
+		storeRecordedSession: async (payload: StoreRecordedSessionInput) => {
 			const result = await tauriAPI.storeRecordedSession(payload);
-			return result as { success: boolean; path?: string; session?: unknown; message?: string; error?: string };
+			return result as {
+				success: boolean;
+				path?: string;
+				session?: RecordingSession;
+				message?: string;
+				error?: string;
+			};
 		},
 
 		getRecordedVideoPath: async () => {
@@ -96,7 +109,7 @@ if (!window.electronAPI) {
 
 		setCurrentRecordingSession: async (session) => {
 			const result = await tauriAPI.setCurrentRecordingSession(session);
-			return result as { success: boolean; session?: unknown };
+			return result as { success: boolean; session?: RecordingSession };
 		},
 
 		getCurrentVideoPath: async () => {
@@ -106,7 +119,7 @@ if (!window.electronAPI) {
 
 		getCurrentRecordingSession: async () => {
 			const result = await tauriAPI.getCurrentRecordingSession();
-			return result as { success: boolean; session?: unknown };
+			return result as { success: boolean; session?: RecordingSession };
 		},
 
 		clearCurrentVideoPath: async () => {
