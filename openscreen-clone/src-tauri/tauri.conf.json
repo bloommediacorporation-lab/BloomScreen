@@ -19,7 +19,7 @@
         "height": 800,
         "decorations": true,
         "center": true,
-        "url": "/"
+        "url": "/?windowType=hud-overlay"
       }
     ],
     "security": {
