@@ -36,6 +36,8 @@ import { AnnotationOverlay } from "./AnnotationOverlay";
 import {
 	type AnnotationRegion,
 	type BlurData,
+	type ClickTelemetryPoint,
+	type KeyboardShortcutPoint,
 	type SpeedRegion,
 	type TrimRegion,
 	ZOOM_DEPTH_SCALES,
@@ -55,6 +57,8 @@ import { adaptiveSmoothFactor, smoothCursorFocus } from "./videoPlayback/cursorF
 import { clampFocusToStage as clampFocusToStageUtil } from "./videoPlayback/focusUtils";
 import { layoutVideoContent as layoutVideoContentUtil } from "./videoPlayback/layoutUtils";
 import { clamp01 } from "./videoPlayback/mathUtils";
+import { ClickRippleOverlay } from "./videoPlayback/ClickRippleOverlay";
+import { KeyboardShortcutOverlay } from "./videoPlayback/KeyboardShortcutOverlay";
 import { updateOverlayIndicator } from "./videoPlayback/overlayUtils";
 import { createVideoEventHandlers } from "./videoPlayback/videoEventHandlers";
 import { findDominantRegion } from "./videoPlayback/zoomRegionUtils";
@@ -110,6 +114,10 @@ interface VideoPlaybackProps {
 	onBlurDataChange?: (id: string, blurData: BlurData) => void;
 	onBlurDataCommit?: () => void;
 	cursorTelemetry?: import("./types").CursorTelemetryPoint[];
+	clickTelemetry?: ClickTelemetryPoint[];
+	shortcutTelemetry?: KeyboardShortcutPoint[];
+	showShortcutsOverlay?: boolean;
+	showClickRipples?: boolean;
 }
 
 export interface VideoPlaybackRef {
@@ -168,6 +176,10 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			onBlurDataChange,
 			onBlurDataCommit,
 			cursorTelemetry = [],
+			clickTelemetry = [],
+			shortcutTelemetry = [],
+			showShortcutsOverlay = false,
+			showClickRipples = false,
 		},
 		ref,
 	) => {
@@ -1454,6 +1466,18 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 						})()}
 					</div>
 				)}
+				<ClickRippleOverlay
+					clicks={clickTelemetry}
+					currentTimeMs={currentTime * 1000}
+					isPlaying={isPlaying}
+					visible={showClickRipples}
+				/>
+				<KeyboardShortcutOverlay
+					shortcuts={shortcutTelemetry}
+					currentTimeMs={currentTime * 1000}
+					isPlaying={isPlaying}
+					visible={showShortcutsOverlay}
+				/>
 				<video
 					ref={videoRef}
 					src={videoPath}

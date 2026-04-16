@@ -43,6 +43,27 @@ export interface CursorTelemetryPoint {
 	cy: number;
 }
 
+export interface ClickTelemetryPoint {
+	timeMs: number;
+	cx: number;
+	cy: number;
+}
+
+export interface KeyboardShortcutPoint {
+	timeMs: number;
+	keys: string[];
+}
+
+export interface EditorOverlaySettings {
+	showShortcuts: boolean;
+	showClickRipples: boolean;
+}
+
+export const DEFAULT_OVERLAY_SETTINGS: EditorOverlaySettings = {
+	showShortcuts: false,
+	showClickRipples: false,
+};
+
 export interface TrimRegion {
 	id: string;
 	startMs: number;

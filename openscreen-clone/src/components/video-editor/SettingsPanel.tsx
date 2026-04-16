@@ -231,6 +231,11 @@ interface SettingsPanelProps {
 	webcamSizePreset?: WebcamSizePreset;
 	onWebcamSizePresetChange?: (size: WebcamSizePreset) => void;
 	onWebcamSizePresetCommit?: () => void;
+	// Overlay toggles
+	showShortcutsOverlay?: boolean;
+	onShortcutsOverlayChange?: (show: boolean) => void;
+	showClickRipples?: boolean;
+	onClickRipplesChange?: (show: boolean) => void;
 }
 
 export default SettingsPanel;
@@ -322,6 +327,10 @@ export function SettingsPanel({
 	webcamSizePreset = DEFAULT_WEBCAM_SIZE_PRESET,
 	onWebcamSizePresetChange,
 	onWebcamSizePresetCommit,
+	showShortcutsOverlay = false,
+	onShortcutsOverlayChange,
+	showClickRipples = false,
+	onClickRipplesChange,
 }: SettingsPanelProps) {
 	const t = useScopedT("settings");
 	const [wallpaperPaths, setWallpaperPaths] = useState<string[]>([]);
@@ -1057,6 +1066,34 @@ export function SettingsPanel({
 								<Crop className="w-3 h-3" />
 								{t("crop.cropVideo")}
 							</Button>
+						</AccordionContent>
+					</AccordionItem>
+
+					<AccordionItem
+						value="overlays"
+						className="border-white/5 rounded-xl bg-white/[0.02] px-3"
+					>
+						<AccordionTrigger className="py-2.5 hover:no-underline">
+							<div className="flex items-center gap-2">
+								<Sparkles className="h-4 w-4" />
+								<span>Overlays</span>
+							</div>
+						</AccordionTrigger>
+						<AccordionContent className="pb-4 pt-2 space-y-4">
+							<div className="flex items-center justify-between">
+								<label className="text-sm text-slate-300">Keyboard Shortcuts</label>
+								<Switch
+									checked={showShortcutsOverlay}
+									onCheckedChange={onShortcutsOverlayChange}
+								/>
+							</div>
+							<div className="flex items-center justify-between">
+								<label className="text-sm text-slate-300">Click Ripples</label>
+								<Switch
+									checked={showClickRipples}
+									onCheckedChange={onClickRipplesChange}
+								/>
+							</div>
 						</AccordionContent>
 					</AccordionItem>
 

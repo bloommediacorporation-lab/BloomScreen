@@ -55,6 +55,7 @@ import TimelineEditor from "./timeline/TimelineEditor";
 import {
 	type AnnotationRegion,
 	type BlurData,
+	type ClickTelemetryPoint,
 	type CursorTelemetryPoint,
 	clampFocusToDepth,
 	DEFAULT_ANNOTATION_POSITION,
@@ -62,9 +63,11 @@ import {
 	DEFAULT_ANNOTATION_STYLE,
 	DEFAULT_BLUR_DATA,
 	DEFAULT_FIGURE_DATA,
+	DEFAULT_OVERLAY_SETTINGS,
 	DEFAULT_PLAYBACK_SPEED,
 	DEFAULT_ZOOM_DEPTH,
 	type FigureData,
+	type KeyboardShortcutPoint,
 	type PlaybackSpeed,
 	type SpeedRegion,
 	type TrimRegion,
@@ -73,6 +76,7 @@ import {
 	type ZoomFocusMode,
 	type ZoomRegion,
 } from "./types";
+import { CommandMenu, type CommandMenuItem } from "./CommandMenu";
 import VideoPlayback, { VideoPlaybackRef } from "./VideoPlayback";
 import { TRANSITION_WINDOW_MS, ZOOM_IN_TRANSITION_WINDOW_MS } from "./videoPlayback/constants";
 
@@ -121,6 +125,11 @@ export default function VideoEditor() {
 	const durationRef = useRef(duration);
 	durationRef.current = duration;
 	const [cursorTelemetry, setCursorTelemetry] = useState<CursorTelemetryPoint[]>([]);
+	const [clickTelemetry, setClickTelemetry] = useState<ClickTelemetryPoint[]>([]);
+	const [shortcutTelemetry, setShortcutTelemetry] = useState<KeyboardShortcutPoint[]>([]);
+	const [showShortcutsOverlay, setShowShortcutsOverlay] = useState(DEFAULT_OVERLAY_SETTINGS.showShortcuts);
+	const [showClickRipples, setShowClickRipples] = useState(DEFAULT_OVERLAY_SETTINGS.showClickRipples);
+	const [commandMenuOpen, setCommandMenuOpen] = useState(false);
 	const [selectedZoomId, setSelectedZoomId] = useState<string | null>(null);
 	const [selectedTrimId, setSelectedTrimId] = useState<string | null>(null);
 	const [selectedSpeedId, setSelectedSpeedId] = useState<string | null>(null);
@@ -1222,6 +1231,18 @@ export default function VideoEditor() {
 		return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
 	}, [undo, redo, shortcuts, isMac]);
 
+	// Command Menu shortcut (⌘+K / Ctrl+K)
+	useEffect(() => {
+		const handleCmdK = (e: KeyboardEvent) => {
+			if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+				e.preventDefault();
+				setCommandMenuOpen((prev) => !prev);
+			}
+		};
+		window.addEventListener("keydown", handleCmdK);
+		return () => window.removeEventListener("keydown", handleCmdK);
+	}, []);
+
 	useEffect(() => {
 		if (selectedZoomId && !zoomRegions.some((region) => region.id === selectedZoomId)) {
 			setSelectedZoomId(null);
@@ -1675,6 +1696,20 @@ export default function VideoEditor() {
 		);
 	}
 
+	const commandMenuItems: CommandMenuItem[] = useMemo(
+		() => [
+			{ id: "new-recording", label: "New Recording", icon: "🎥", shortcut: "⌘N", action: () => setShowNewRecordingDialog(true) },
+			{ id: "export", label: "Export Video", icon: "📦", shortcut: "⌘E", action: () => setShowExportDialog(true) },
+			{ id: "toggle-zoom", label: "Toggle Auto-Zoom", icon: "🔍", action: () => { /* toggle zoom behavior */ } },
+			{ id: "toggle-webcam", label: "Toggle Webcam", icon: "📹", action: () => { /* toggle webcam */ } },
+			{ id: "toggle-shortcuts", label: `${showShortcutsOverlay ? "Hide" : "Show"} Keyboard Shortcuts`, icon: "⌨️", action: () => setShowShortcutsOverlay((v) => !v) },
+			{ id: "toggle-ripples", label: `${showClickRipples ? "Hide" : "Show"} Click Ripples`, icon: "💧", action: () => setShowClickRipples((v) => !v) },
+			{ id: "undo", label: "Undo", icon: "↩️", shortcut: "⌘Z", action: undo },
+			{ id: "redo", label: "Redo", icon: "↪️", shortcut: "⌘⇧Z", action: redo },
+		],
+		[undo, redo, showShortcutsOverlay, showClickRipples],
+	);
+
 	return (
 		<div className="flex flex-col h-screen bg-[#09090b] text-slate-200 overflow-hidden selection:bg-[#5D5FEF]/30">
 			<Dialog open={showNewRecordingDialog} onOpenChange={setShowNewRecordingDialog}>
@@ -1832,6 +1867,10 @@ export default function VideoEditor() {
 											onBlurDataChange={handleBlurDataPreviewChange}
 											onBlurDataCommit={commitState}
 											cursorTelemetry={cursorTelemetry}
+											clickTelemetry={clickTelemetry}
+											shortcutTelemetry={shortcutTelemetry}
+											showShortcutsOverlay={showShortcutsOverlay}
+											showClickRipples={showClickRipples}
 										/>
 									</div>
 								</div>
@@ -2025,6 +2064,8 @@ export default function VideoEditor() {
 						onZoomDurationChange={(zoomIn, zoomOut) =>
 							selectedZoomId && handleZoomDurationChange(selectedZoomId, zoomIn, zoomOut)
 						}
+						onShortcutsOverlayChange={setShowShortcutsOverlay}
+						onClickRipplesChange={setShowClickRipples}
 					/>
 				</div>
 			</div>
@@ -2041,6 +2082,12 @@ export default function VideoEditor() {
 				onShowInFolder={
 					exportedFilePath ? () => void handleShowExportedFile(exportedFilePath) : undefined
 				}
+			/>
+
+			<CommandMenu
+				open={commandMenuOpen}
+				onClose={() => setCommandMenuOpen(false)}
+				items={commandMenuItems}
 			/>
 		</div>
 	);
