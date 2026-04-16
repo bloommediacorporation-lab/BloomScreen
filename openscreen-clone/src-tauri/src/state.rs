@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordingSession {
     pub screen_video_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]

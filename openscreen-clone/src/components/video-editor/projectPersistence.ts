@@ -142,7 +142,8 @@ export function toFileUrl(filePath: string): string {
 	return `file://${encodePathSegments(absolutePath)}`;
 }
 
-export function fromFileUrl(fileUrl: string): string {
+export function fromFileUrl(fileUrl: string | undefined | null): string {
+	if (!fileUrl) return "";
 	const value = fileUrl.trim();
 	if (!isFileUrl(value)) {
 		return fileUrl;
