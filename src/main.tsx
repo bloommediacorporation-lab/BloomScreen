@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
-import { I18nProvider } from "./contexts/I18nContext";
+import { I18nProvider } from "../openscreen-clone/src/contexts/I18nContext";
 import "./index.css";
 
 // MOCK electronAPI for web usage!
