@@ -556,7 +556,7 @@ fn load_session_for_video(video_path: &str) -> Option<RecordingSession> {
 // ─── Window Management Commands ───────────────────────────────────
 
 #[tauri::command]
-fn switch_to_editor(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn switch_to_editor(app: tauri::AppHandle) -> Result<Value, String> {
     // Close the main HUD window
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.close();
@@ -589,7 +589,7 @@ fn switch_to_editor(app: tauri::AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn switch_to_hud(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn switch_to_hud(app: tauri::AppHandle) -> Result<Value, String> {
     // Close the editor window
     if let Some(editor_win) = app.get_webview_window("editor") {
         let _ = editor_win.close();
@@ -611,9 +611,7 @@ fn switch_to_hud(app: tauri::AppHandle) -> Result<Value, String> {
             .title("BloomScreen")
             .inner_size(800.0, 80.0)
             .decorations(false)
-            .transparent(true)
             .always_on_top(true)
-            .skip_taskbar(true)
             .center()
             .build()
             .map_err(|e| e.to_string())?;
@@ -623,7 +621,7 @@ fn switch_to_hud(app: tauri::AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn open_source_selector_window(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn open_source_selector_window(app: tauri::AppHandle) -> Result<Value, String> {
     if app.get_webview_window("source-selector").is_some() {
         if let Some(win) = app.get_webview_window("source-selector") {
             let _ = win.show();
@@ -652,7 +650,7 @@ fn open_source_selector_window(app: tauri::AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn start_new_recording_window(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn start_new_recording_window(app: tauri::AppHandle) -> Result<Value, String> {
     // Reset the main window state and ensure it's visible
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.show();
@@ -662,7 +660,7 @@ fn start_new_recording_window(app: tauri::AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn hud_overlay_hide(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn hud_overlay_hide(app: tauri::AppHandle) -> Result<Value, String> {
     if let Some(main_win) = app.get_webview_window("main") {
         let _ = main_win.hide();
     }
@@ -670,7 +668,7 @@ fn hud_overlay_hide(app: tauri::AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn hud_overlay_close(app: tauri::AppHandle) -> Result<Value, String> {
+pub fn hud_overlay_close(app: tauri::AppHandle) -> Result<Value, String> {
     app.exit(0);
     Ok(serde_json::json!({ "success": true }))
 }
