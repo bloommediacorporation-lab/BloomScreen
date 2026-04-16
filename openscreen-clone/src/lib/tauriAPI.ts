@@ -172,25 +172,29 @@ export const tauriAPI = {
     return invoke("request_camera_access");
   },
 
-  // Window management (Tauri handles differently)
+  // Window management
   switchToEditor: async () => {
-    // In Tauri, this would be handled by window creation/navigation
-    console.log("[Tauri] switchToEditor — implement with Tauri window management");
-    return { success: true };
+    return invoke("switch_to_editor");
   },
 
   switchToHud: async () => {
-    console.log("[Tauri] switchToHud — implement with Tauri window management");
-    return { success: true };
+    return invoke("switch_to_hud");
   },
 
   startNewRecording: async () => {
-    return { success: true };
+    return invoke("start_new_recording_window");
   },
 
   openSourceSelector: async () => {
-    console.log("[Tauri] openSourceSelector — implement with Tauri window management");
-    return { success: true };
+    return invoke("open_source_selector_window");
+  },
+
+  hudOverlayHide: async () => {
+    return invoke("hud_overlay_hide");
+  },
+
+  hudOverlayClose: async () => {
+    return invoke("hud_overlay_close");
   },
 
   // Event listeners (Tauri uses different event system)

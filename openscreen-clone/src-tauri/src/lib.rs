@@ -43,6 +43,13 @@ pub fn run() {
             commands::select_source,
             commands::get_selected_source,
             commands::request_camera_access,
+            // Window management
+            commands::switch_to_editor,
+            commands::switch_to_hud,
+            commands::open_source_selector_window,
+            commands::start_new_recording_window,
+            commands::hud_overlay_hide,
+            commands::hud_overlay_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

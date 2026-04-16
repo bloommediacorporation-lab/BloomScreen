@@ -15,11 +15,14 @@
       {
         "label": "main",
         "title": "BloomScreen",
-        "width": 1280,
-        "height": 800,
-        "decorations": true,
+        "width": 800,
+        "height": 80,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
         "center": true,
-        "url": "/?windowType=editor"
+        "url": "/?windowType=hud-overlay"
       }
     ],
     "security": {

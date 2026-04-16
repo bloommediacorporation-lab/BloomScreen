@@ -122,5 +122,7 @@ interface Window {
 		setHasUnsavedChanges: (hasChanges: boolean) => void;
 		onRequestSaveBeforeClose: (callback: () => Promise<boolean> | boolean) => () => void;
 		setLocale: (locale: string) => Promise<void>;
+		hudOverlayHide: () => Promise<{ success: boolean }>;
+		hudOverlayClose: () => Promise<{ success: boolean }>;
 	};
 }

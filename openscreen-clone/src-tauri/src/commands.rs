@@ -3,7 +3,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
-use tauri::State;
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 // ─── File System Commands ───────────────────────────────────────
 
@@ -551,4 +551,126 @@ fn load_session_for_video(video_path: &str) -> Option<RecordingSession> {
     }
 
     None
+}
+
+// ─── Window Management Commands ───────────────────────────────────
+
+#[tauri::command]
+fn switch_to_editor(app: tauri::AppHandle) -> Result<Value, String> {
+    // Close the main HUD window
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.close();
+    }
+
+    // Create editor window if it doesn't exist
+    if app.get_webview_window("editor").is_none() {
+        let url = if cfg!(debug_assertions) {
+            WebviewUrl::External("http://localhost:5173/?windowType=editor".parse().unwrap())
+        } else {
+            WebviewUrl::App("/?windowType=editor".into())
+        };
+
+        WebviewWindowBuilder::new(&app, "editor", url)
+            .title("BloomScreen Editor")
+            .inner_size(1280.0, 800.0)
+            .center()
+            .decorations(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+    } else {
+        // Editor exists, just show it
+        if let Some(editor_win) = app.get_webview_window("editor") {
+            let _ = editor_win.show();
+            let _ = editor_win.set_focus();
+        }
+    }
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+fn switch_to_hud(app: tauri::AppHandle) -> Result<Value, String> {
+    // Close the editor window
+    if let Some(editor_win) = app.get_webview_window("editor") {
+        let _ = editor_win.close();
+    }
+
+    // Show the main HUD window
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.show();
+        let _ = main_win.set_focus();
+    } else {
+        // Recreate if somehow closed
+        let url = if cfg!(debug_assertions) {
+            WebviewUrl::External("http://localhost:5173/?windowType=hud-overlay".parse().unwrap())
+        } else {
+            WebviewUrl::App("/?windowType=hud-overlay".into())
+        };
+
+        WebviewWindowBuilder::new(&app, "main", url)
+            .title("BloomScreen")
+            .inner_size(800.0, 80.0)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .center()
+            .build()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+fn open_source_selector_window(app: tauri::AppHandle) -> Result<Value, String> {
+    if app.get_webview_window("source-selector").is_some() {
+        if let Some(win) = app.get_webview_window("source-selector") {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+        return Ok(serde_json::json!({ "success": true }));
+    }
+
+    let url = if cfg!(debug_assertions) {
+        WebviewUrl::External("http://localhost:5173/?windowType=source-selector".parse().unwrap())
+    } else {
+        WebviewUrl::App("/?windowType=source-selector".into())
+    };
+
+    WebviewWindowBuilder::new(&app, "source-selector", url)
+        .title("Select Source")
+        .inner_size(480.0, 400.0)
+        .center()
+        .decorations(true)
+        .always_on_top(true)
+        .resizable(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+fn start_new_recording_window(app: tauri::AppHandle) -> Result<Value, String> {
+    // Reset the main window state and ensure it's visible
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.show();
+        let _ = main_win.set_focus();
+    }
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+fn hud_overlay_hide(app: tauri::AppHandle) -> Result<Value, String> {
+    if let Some(main_win) = app.get_webview_window("main") {
+        let _ = main_win.hide();
+    }
+    Ok(serde_json::json!({ "success": true }))
+}
+
+#[tauri::command]
+fn hud_overlay_close(app: tauri::AppHandle) -> Result<Value, String> {
+    app.exit(0);
+    Ok(serde_json::json!({ "success": true }))
 }
