@@ -162,6 +162,7 @@ if (typeof window !== 'undefined') {
       windowMinimize: async () => ({ success: true }),
       windowMaximize: async () => ({ success: true }),
       windowClose: async () => ({ success: true }),
+    } as any;
   }
 }
 
