@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Component, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 import { TitleBar } from "./components/home/TitleBar";
 import { HomeScreen } from "./components/home/HomeScreen";
 import { Toaster } from "./components/ui/sonner";
@@ -8,14 +8,48 @@ import VideoEditor from "./components/video-editor/VideoEditor";
 import { ShortcutsProvider } from "./contexts/ShortcutsContext";
 import { loadAllCustomFonts } from "./lib/customFonts";
 
+function getInitialWindowType() {
+	if (typeof window === "undefined") return "";
+	const params = new URLSearchParams(window.location.search);
+	return params.get("windowType") || "";
+}
+
+class AppErrorBoundary extends Component<
+	{ children: ReactNode },
+	{ error: Error | null }
+> {
+	state = { error: null as Error | null };
+
+	static getDerivedStateFromError(error: Error) {
+		return { error };
+	}
+
+	componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+		console.error("App render error:", error, errorInfo);
+	}
+
+	render() {
+		if (this.state.error) {
+			return (
+				<div className="min-h-screen bg-[#09090b] text-white flex items-center justify-center p-6">
+					<div className="max-w-2xl w-full rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+						<div className="text-red-300 font-semibold mb-2">Editor crash</div>
+						<div className="text-sm text-red-100 break-words whitespace-pre-wrap">
+							{this.state.error.message}
+						</div>
+					</div>
+				</div>
+			);
+		}
+
+		return this.props.children;
+	}
+}
+
 export default function App() {
-	const [windowType, setWindowType] = useState("");
+	const [windowType] = useState(getInitialWindowType);
 
 	useEffect(() => {
-		const params = new URLSearchParams(window.location.search);
-		const type = params.get("windowType") || "";
-		setWindowType(type);
-
 		// Load custom fonts on app initialization
 		loadAllCustomFonts().catch((error) => {
 			console.error("Failed to load custom fonts:", error);
@@ -54,7 +88,9 @@ export default function App() {
 
 	return (
 		<TooltipProvider>
-			{content}
+			<AppErrorBoundary>
+				{content}
+			</AppErrorBoundary>
 			<Toaster theme="dark" className="pointer-events-auto" />
 		</TooltipProvider>
 	);
