@@ -51,6 +51,7 @@ pub struct AppState {
     pub approved_paths: Mutex<HashSet<String>>,
     pub recording_active: Mutex<bool>,
     pub cursor_samples: Mutex<Vec<CursorTelemetryPoint>>,
+    #[allow(dead_code)]
     pub has_unsaved_changes: Mutex<bool>,
 }
 

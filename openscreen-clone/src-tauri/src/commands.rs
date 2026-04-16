@@ -2,7 +2,7 @@ use crate::state::{AppState, DesktopSource, RecordingSession, StoreRecordedSessi
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tauri::State;
 
 // ─── File System Commands ───────────────────────────────────────
