@@ -776,6 +776,10 @@ fn run_frame_capture(
         .spawn()
         .map_err(|e| format!("FFmpeg spawn failed: {}", e))?;
 
+    let mut stdin = ffmpeg
+        .take_stdin()
+        .ok_or("Failed to acquire FFmpeg stdin")?;
+
     let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
     let monitor = monitors.first().ok_or("No monitor")?.clone();
 
@@ -794,13 +798,10 @@ fn run_frame_capture(
                 // xcap returns RgbaImage directly — just get the raw bytes
                 let raw_bytes = image.as_raw();
 
-                // Write to ffmpeg stdin
-                if let Some(mut stdin) = ffmpeg.take_stdin() {
-                    if let Err(e) = stdin.write_all(raw_bytes) {
-                        log::error!("FFmpeg write error: {}", e);
-                        break;
-                    }
-                    drop(stdin);
+                // Keep FFmpeg stdin open for the entire recording session.
+                if let Err(e) = stdin.write_all(raw_bytes) {
+                    log::error!("FFmpeg write error: {}", e);
+                    break;
                 }
             }
             Err(e) => {
@@ -809,10 +810,9 @@ fn run_frame_capture(
         }
     }
 
-    // Graceful shutdown — close stdin to tell ffmpeg to finalize
-    if let Some(mut stdin) = ffmpeg.take_stdin() {
-        let _ = stdin.flush();
-    }
+    // Graceful shutdown — close stdin to tell ffmpeg to finalize.
+    let _ = stdin.flush();
+    drop(stdin);
     drop(ffmpeg);
     Ok(())
 }
