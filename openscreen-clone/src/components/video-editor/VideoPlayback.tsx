@@ -133,7 +133,7 @@ export interface VideoPlaybackRef {
 
 function toPlayableMediaSrc(input: string): string {
 	if (!input) return "";
-	if (/^(https?:|blob:|data:)/i.test(input)) {
+	if (/^(https?:|blob:|data:|file:)/i.test(input)) {
 		return input;
 	}
 
@@ -141,13 +141,62 @@ function toPlayableMediaSrc(input: string): string {
 	const internalConvert = (window as any).__TAURI_INTERNALS__?.convertFileSrc;
 	if (typeof internalConvert === "function") {
 		try {
-			return internalConvert(rawPath);
+			const converted = internalConvert(rawPath);
+			if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(converted)) {
+				return converted;
+			}
 		} catch {
 			// fall through
 		}
 	}
 
-	return isFileUrl(input) ? input : `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+	return `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+}
+
+function useResolvedMediaSrc(input?: string): string {
+	const [resolved, setResolved] = useState(() => (input ? toPlayableMediaSrc(input) : ""));
+
+	useEffect(() => {
+		if (!input) {
+			setResolved("");
+			return;
+		}
+
+		const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
+		if (/^(https?:|blob:|data:|file:)/i.test(input) || !window.electronAPI?.readBinaryFile) {
+			setResolved(toPlayableMediaSrc(input));
+			return;
+		}
+
+		let revokedUrl: string | null = null;
+		let cancelled = false;
+
+		(async () => {
+			try {
+				const result = await window.electronAPI.readBinaryFile(rawPath);
+				if (!result.success || !result.data) {
+					if (!cancelled) setResolved(toPlayableMediaSrc(input));
+					return;
+				}
+
+				revokedUrl = URL.createObjectURL(new Blob([result.data]));
+				if (!cancelled) {
+					setResolved(revokedUrl);
+				}
+			} catch {
+				if (!cancelled) setResolved(toPlayableMediaSrc(input));
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+			if (revokedUrl) {
+				URL.revokeObjectURL(revokedUrl);
+			}
+		};
+	}, [input]);
+
+	return resolved;
 }
 
 const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
@@ -203,11 +252,8 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		},
 		ref,
 	) => {
-		const playableVideoPath = useMemo(() => toPlayableMediaSrc(videoPath), [videoPath]);
-		const playableWebcamVideoPath = useMemo(
-			() => (webcamVideoPath ? toPlayableMediaSrc(webcamVideoPath) : undefined),
-			[webcamVideoPath],
-		);
+		const playableVideoPath = useResolvedMediaSrc(videoPath);
+		const playableWebcamVideoPath = useResolvedMediaSrc(webcamVideoPath);
 
 		const videoRef = useRef<HTMLVideoElement | null>(null);
 		const webcamVideoRef = useRef<HTMLVideoElement | null>(null);

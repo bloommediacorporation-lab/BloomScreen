@@ -74,6 +74,13 @@ interface Window {
 			message?: string;
 			canceled?: boolean;
 		}>;
+		readBinaryFile: (filePath: string) => Promise<{
+			success: boolean;
+			data?: ArrayBuffer;
+			path?: string;
+			message?: string;
+			error?: string;
+		}>;
 		openVideoFilePicker: () => Promise<{ success: boolean; path?: string; canceled?: boolean }>;
 		setCurrentVideoPath: (path: string) => Promise<{ success: boolean }>;
 		setCurrentRecordingSession: (

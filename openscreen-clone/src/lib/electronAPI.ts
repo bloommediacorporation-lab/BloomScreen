@@ -97,6 +97,17 @@ if (!window.electronAPI) {
 			return result as { success: boolean; path?: string; message?: string; canceled?: boolean };
 		},
 
+		readBinaryFile: async (filePath) => {
+			const result = await tauriAPI.readBinaryFile(filePath);
+			return result as {
+				success: boolean;
+				data?: ArrayBuffer;
+				path?: string;
+				message?: string;
+				error?: string;
+			};
+		},
+
 		openVideoFilePicker: async () => {
 			const result = await tauriAPI.openVideoFilePicker();
 			return result as { success: boolean; path?: string; canceled?: boolean };

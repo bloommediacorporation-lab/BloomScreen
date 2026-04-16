@@ -82,6 +82,16 @@ if (typeof window !== 'undefined') {
         for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
         return tauriInvoke("save_exported_video", { videoData: btoa(binary), fileName });
       },
+      readBinaryFile: async (filePath: string) => {
+        const result = await tauriInvoke("read_binary_file", { filePath });
+        if (result.data && typeof result.data === "string") {
+          const binary = atob(result.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          return { ...result, data: bytes.buffer };
+        }
+        return result;
+      },
       openVideoFilePicker: async () => tauriInvoke("open_video_file_picker"),
       setCurrentVideoPath: async (path: string) => tauriInvoke("set_current_video_path", { path }),
       setCurrentRecordingSession: async (session: any) => tauriInvoke("set_current_recording_session", { session }),
@@ -125,6 +135,7 @@ if (typeof window !== 'undefined') {
       onStopRecordingFromTray: () => () => {},
       openExternalUrl: async () => ({ success: true }),
       saveExportedVideo: async () => ({ success: true }),
+      readBinaryFile: async () => ({ success: false, error: 'Web mock' }),
       openVideoFilePicker: async () => {
         return new Promise((resolve) => {
           const input = document.createElement('input');
