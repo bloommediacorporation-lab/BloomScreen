@@ -1,8 +1,8 @@
-use crate::state::{AppState, CursorTelemetryPoint, DesktopSource, RecordingSession, StoreRecordedSessionInput};
+use crate::state::{AppState, DesktopSource, RecordingSession, StoreRecordedSessionInput};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::Value;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tauri::State;
 
 // ─── File System Commands ───────────────────────────────────────
@@ -126,10 +126,6 @@ pub async fn save_exported_video(
     video_data: String, // base64
     file_name: String,
 ) -> Result<Value, String> {
-    let downloads_dir = dirs::download_dir().unwrap_or_else(|| PathBuf::from("."));
-    let default_path = downloads_dir.join(&file_name);
-
-    // Use tauri dialog for save
     use tauri_plugin_dialog::DialogExt;
     let is_gif = file_name.to_lowercase().ends_with(".gif");
     let ext = if is_gif { "gif" } else { "mp4" };
@@ -142,11 +138,12 @@ pub async fn save_exported_video(
 
     match result {
         Some(path) => {
+            let path_str = path.to_string();
             let decoded = BASE64.decode(&video_data).map_err(|e| e.to_string())?;
-            fs::write(&path, decoded).map_err(|e| e.to_string())?;
+            fs::write(PathBuf::from(&path), decoded).map_err(|e| e.to_string())?;
             Ok(serde_json::json!({
                 "success": true,
-                "path": path.to_string(),
+                "path": path_str,
                 "message": "Video exported successfully"
             }))
         }
@@ -158,7 +155,7 @@ pub async fn save_exported_video(
     }
 }
 
-use std::path::PathBuf;
+// PathBuf already imported above
 
 #[tauri::command]
 pub async fn save_project_file(
@@ -195,9 +192,6 @@ pub async fn save_project_file(
         format!("{}.openscreen", safe_name)
     };
 
-    let recordings_dir = AppState::recordings_dir();
-    let default_path = recordings_dir.join(&default_name);
-
     use tauri_plugin_dialog::DialogExt;
     let result = app.dialog()
         .file()
@@ -208,12 +202,13 @@ pub async fn save_project_file(
 
     match result {
         Some(path) => {
-            fs::write(&path, serde_json::to_string_pretty(&project_data).unwrap())
+            let path_str = path.to_string();
+            fs::write(PathBuf::from(&path), serde_json::to_string_pretty(&project_data).unwrap())
                 .map_err(|e| e.to_string())?;
-            *state.current_project_path.lock().unwrap() = Some(path.to_string());
+            *state.current_project_path.lock().unwrap() = Some(path_str.clone());
             Ok(serde_json::json!({
                 "success": true,
-                "path": path.to_string(),
+                "path": path_str,
                 "message": "Project saved successfully"
             }))
         }
@@ -235,17 +230,18 @@ pub async fn load_project_file(
         .file()
         .add_filter("Openscreen Project", &["openscreen"])
         .add_filter("JSON", &["json"])
-        .blocking_open_file();
+        .blocking_pick_file();
 
     match result {
         Some(path) => {
-            let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let path_str = path.to_string();
+            let content = fs::read_to_string(PathBuf::from(&path)).map_err(|e| e.to_string())?;
             let project: Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-            state.approve_path(&path.to_string());
-            *state.current_project_path.lock().unwrap() = Some(path.to_string());
+            state.approve_path(&path_str);
+            *state.current_project_path.lock().unwrap() = Some(path_str.clone());
             Ok(serde_json::json!({
                 "success": true,
-                "path": path.to_string(),
+                "path": path_str,
                 "project": project
             }))
         }
@@ -288,7 +284,7 @@ pub async fn open_video_file_picker(
     let result = app.dialog()
         .file()
         .add_filter("Video Files", &["webm", "mp4", "mov", "avi", "mkv"])
-        .blocking_open_file();
+        .blocking_pick_file();
 
     match result {
         Some(path) => {
