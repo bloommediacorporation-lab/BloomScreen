@@ -43,10 +43,9 @@ function generateMockCursorTelemetry() {
   return { success: true, samples };
 }
 
-// Tauri invoke helper
+// Tauri invoke helper — uses the global __TAURI__ injected by withGlobalTauri
 async function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<any> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke(cmd, args);
+  return (window as any).__TAURI_INTERNALS__.invoke(cmd, args);
 }
 
 // Set up electronAPI bridge

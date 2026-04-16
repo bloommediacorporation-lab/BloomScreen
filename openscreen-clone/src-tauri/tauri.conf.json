@@ -18,7 +18,6 @@
         "width": 800,
         "height": 80,
         "decorations": false,
-        "transparent": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "center": true,
