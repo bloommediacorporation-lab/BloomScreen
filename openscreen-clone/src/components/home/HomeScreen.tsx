@@ -1,10 +1,174 @@
-import { FolderOpen, Monitor, Video, Mic, MicOff, Volume2, VolumeX, Camera, CameraOff, Settings, Play } from "lucide-react";
-import { useState } from "react";
+import { FolderOpen, Video, Mic, MicOff, Volume2, VolumeX, Camera, CameraOff, Square } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { toast } from "sonner";
 
 export function HomeScreen() {
 	const [micEnabled, setMicEnabled] = useState(true);
 	const [audioEnabled, setAudioEnabled] = useState(true);
 	const [cameraEnabled, setCameraEnabled] = useState(false);
+	const [recording, setRecording] = useState(false);
+	const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+	const streamRef = useRef<MediaStream | null>(null);
+	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const startTimeRef = useRef<number>(0);
+
+	const stopTimer = useCallback(() => {
+		if (timerRef.current) {
+			clearInterval(timerRef.current);
+			timerRef.current = null;
+		}
+	}, []);
+
+	const startTimer = useCallback(() => {
+		startTimeRef.current = Date.now();
+		setElapsedSeconds(0);
+		timerRef.current = setInterval(() => {
+			const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+			setElapsedSeconds(elapsed);
+		}, 250);
+	}, []);
+
+	const cleanup = useCallback(() => {
+		if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+			try { mediaRecorderRef.current.stop(); } catch {}
+		}
+		mediaRecorderRef.current = null;
+		if (streamRef.current) {
+			streamRef.current.getTracks().forEach(t => t.stop());
+			streamRef.current = null;
+		}
+		stopTimer();
+		setRecording(false);
+		setElapsedSeconds(0);
+	}, [stopTimer]);
+
+	// Cleanup on unmount
+	useEffect(() => {
+		return () => {
+			cleanup();
+		};
+	}, [cleanup]);
+
+	const startRecording = async () => {
+		try {
+			// Request screen capture via standard web API
+			// This works in Tauri on macOS (WKWebView supports getDisplayMedia)
+			const displayStream = await navigator.mediaDevices.getDisplayMedia({
+				video: {
+					width: { ideal: 3840 },
+					height: { ideal: 2160 },
+					frameRate: { ideal: 60, max: 60 },
+				},
+				audio: audioEnabled,
+			});
+
+			// If user clicks "Stop sharing" in browser picker, treat as stop
+			displayStream.getVideoTracks()[0].addEventListener("ended", () => {
+				stopRecording();
+			});
+
+			// Combine with microphone if enabled
+			const tracks = [...displayStream.getTracks()];
+
+			if (micEnabled) {
+				try {
+					const micStream = await navigator.mediaDevices.getUserMedia({
+						audio: {
+							echoCancellation: true,
+							noiseSuppression: true,
+							autoGainControl: true,
+						},
+					});
+					tracks.push(...micStream.getAudioTracks());
+					// Store ref for cleanup
+					micStream.getTracks().forEach(t => t.addEventListener("ended", () => {}));
+				} catch (err) {
+					console.warn("Mic access denied, continuing without mic:", err);
+					toast.error("Microfonul nu e disponibil — înregistrăm fără audio");
+				}
+			}
+
+			const combinedStream = new MediaStream(tracks);
+			streamRef.current = combinedStream;
+
+			// Select best codec
+			const mimeType = [
+				"video/webm;codecs=vp9,opus",
+				"video/webm;codecs=vp8,opus",
+				"video/webm;codecs=h264,opus",
+				"video/webm",
+			].find(t => MediaRecorder.isTypeSupported(t)) ?? "video/webm";
+
+			const chunks: Blob[] = [];
+			const recorder = new MediaRecorder(combinedStream, {
+				mimeType,
+				videoBitsPerSecond: 20_000_000,
+			});
+
+			recorder.ondataavailable = (e) => {
+				if (e.data.size > 0) chunks.push(e.data);
+			};
+
+			recorder.onstop = async () => {
+				if (chunks.length === 0) return;
+
+				const blob = new Blob(chunks, { type: mimeType });
+				const buffer = await blob.arrayBuffer();
+
+				try {
+					const result = await window.electronAPI?.storeRecordedVideo?.(buffer, `recording-${Date.now()}.webm`);
+					if (result?.success) {
+						if (result.path) {
+							await window.electronAPI?.setCurrentVideoPath?.(result.path);
+						}
+						await window.electronAPI?.switchToEditor?.();
+					}
+				} catch (err) {
+					console.error("Failed to save recording:", err);
+					toast.error("Nu am putut salva înregistrarea");
+				}
+			};
+
+			recorder.start(1000);
+			mediaRecorderRef.current = recorder;
+
+			// Notify backend
+			await window.electronAPI?.setRecordingState?.(true);
+
+			setRecording(true);
+			startTimer();
+		} catch (err: any) {
+			console.error("Recording failed:", err);
+			if (err.name === "NotAllowedError" || err.message?.includes("Permission")) {
+				toast.error("Permisiune refuzată — permite screen capture în System Preferences > Screen Recording");
+			} else {
+				toast.error(`Eroare la înregistrare: ${err.message || err}`);
+			}
+			cleanup();
+		}
+	};
+
+	const stopRecording = useCallback(async () => {
+		const recorder = mediaRecorderRef.current;
+		const stream = streamRef.current;
+
+		if (!recorder) return;
+
+		// Stop recorder — this triggers onstop which saves + switches to editor
+		if (recorder.state === "recording" || recorder.state === "paused") {
+			recorder.stop();
+		}
+
+		if (stream) {
+			stream.getTracks().forEach(t => t.stop());
+		}
+
+		await window.electronAPI?.setRecordingState?.(false);
+		stopTimer();
+		setRecording(false);
+	}, [stopTimer]);
 
 	const openVideoFile = async () => {
 		const result = await window.electronAPI?.openVideoFilePicker?.();
@@ -21,13 +185,10 @@ export function HomeScreen() {
 		}
 	};
 
-	const startRecording = () => {
-		// Will eventually trigger native screen recording
-		console.log("Start recording...");
-	};
-
-	const selectSource = () => {
-		window.electronAPI?.openSourceSelector?.();
+	const formatTime = (seconds: number) => {
+		const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+		const s = (seconds % 60).toString().padStart(2, "0");
+		return `${m}:${s}`;
 	};
 
 	return (
@@ -52,14 +213,28 @@ export function HomeScreen() {
 			<div className="grid grid-cols-3 gap-4 w-full max-w-2xl mb-10">
 				{/* Record */}
 				<button
-					onClick={startRecording}
-					className="group flex flex-col items-center gap-3 p-6 rounded-2xl bg-gradient-to-br from-[#5D5FEF]/20 to-[#5D5FEF]/5 border border-[#5D5FEF]/20 hover:border-[#5D5FEF]/40 hover:from-[#5D5FEF]/30 hover:to-[#5D5FEF]/10 transition-all duration-200 cursor-pointer"
+					onClick={recording ? stopRecording : startRecording}
+					className={`group flex flex-col items-center gap-3 p-6 rounded-2xl transition-all duration-200 cursor-pointer ${
+						recording
+							? "bg-gradient-to-br from-red-500/30 to-red-500/10 border border-red-500/40 hover:border-red-500/60"
+							: "bg-gradient-to-br from-[#5D5FEF]/20 to-[#5D5FEF]/5 border border-[#5D5FEF]/20 hover:border-[#5D5FEF]/40 hover:from-[#5D5FEF]/30 hover:to-[#5D5FEF]/10"
+					}`}
 				>
-					<div className="w-12 h-12 rounded-full bg-[#5D5FEF]/20 flex items-center justify-center group-hover:bg-[#5D5FEF]/30 transition-colors">
-						<div className="w-5 h-5 rounded-full bg-red-500 group-hover:scale-110 transition-transform" />
+					<div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+						recording ? "bg-red-500/30" : "bg-[#5D5FEF]/20 group-hover:bg-[#5D5FEF]/30"
+					}`}>
+						{recording ? (
+							<Square size={18} className="text-red-400 fill-red-400" />
+						) : (
+							<div className="w-5 h-5 rounded-full bg-red-500 group-hover:scale-110 transition-transform" />
+						)}
 					</div>
-					<span className="text-white/80 text-sm font-medium">New Recording</span>
-					<span className="text-white/25 text-xs">Record your screen</span>
+					<span className="text-white/80 text-sm font-medium">
+						{recording ? `Recording ${formatTime(elapsedSeconds)}` : "New Recording"}
+					</span>
+					<span className="text-white/25 text-xs">
+						{recording ? "Click to stop" : "Record your screen"}
+					</span>
 				</button>
 
 				{/* Open Video */}
@@ -89,14 +264,15 @@ export function HomeScreen() {
 
 			{/* Quick settings bar */}
 			<div className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.03] border border-white/[0.06]">
-				{/* Source selector */}
-				<button
-					onClick={selectSource}
-					className="flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-white/5 transition-colors text-white/50 hover:text-white/70"
-				>
-					<Monitor size={15} />
+				{/* Source indicator */}
+				<div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-white/50">
+					<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+						<rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+						<line x1="8" y1="21" x2="16" y2="21" />
+						<line x1="12" y1="17" x2="12" y2="21" />
+					</svg>
 					<span className="text-xs font-medium">Screen</span>
-				</button>
+				</div>
 
 				<div className="w-px h-4 bg-white/10" />
 
@@ -132,13 +308,27 @@ export function HomeScreen() {
 
 				<div className="w-px h-4 bg-white/10" />
 
-				{/* Big record button */}
+				{/* Record / Stop button */}
 				<button
-					onClick={startRecording}
-					className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#5D5FEF] hover:bg-[#5D5FEF]/90 text-white transition-colors"
+					onClick={recording ? stopRecording : startRecording}
+					className={`flex items-center gap-2 px-4 py-1.5 rounded-full transition-colors ${
+						recording
+							? "bg-red-500 hover:bg-red-600 text-white"
+							: "bg-[#5D5FEF] hover:bg-[#5D5FEF]/90 text-white"
+					}`}
 				>
-					<div className="w-2.5 h-2.5 rounded-full bg-white" />
-					<span className="text-xs font-semibold">Record</span>
+					{recording ? (
+						<>
+							<Square size={10} className="fill-white" />
+							<span className="text-xs font-semibold">Stop</span>
+							<span className="text-xs opacity-70">{formatTime(elapsedSeconds)}</span>
+						</>
+					) : (
+						<>
+							<div className="w-2.5 h-2.5 rounded-full bg-white" />
+							<span className="text-xs font-semibold">Record</span>
+						</>
+					)}
 				</button>
 			</div>
 		</div>
