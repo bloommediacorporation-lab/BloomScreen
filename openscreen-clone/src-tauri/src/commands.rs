@@ -1043,35 +1043,46 @@ pub async fn native_stop_recording(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Value, String> {
-    if !NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
-        // Not recording — return success:false so frontend can reset UI without error toast
-        return Ok(serde_json::json!({
-            "success": false,
-            "message": "Not recording"
-        }));
-    }
-
+    // Signal recording to stop
     NATIVE_RECORDING_ACTIVE.store(false, Ordering::SeqCst);
     *state.recording_active.lock().unwrap() = false;
 
-    let join_result = NATIVE_RECORDING_THREAD
-        .lock()
-        .unwrap()
-        .take()
-        .ok_or("Recording thread not found")?
-        .join()
-        .map_err(|_| "Recording thread panicked".to_string())?;
+    // Try to join the thread if it exists (even if thread already exited)
+    let thread_handle = NATIVE_RECORDING_THREAD.lock().unwrap().take();
 
-    if let Err(err) = join_result {
-        *NATIVE_RECORDING_OUTPUT_PATH.lock().unwrap() = None;
-        return Err(format!("Recording finalization failed: {}", err));
+    if let Some(handle) = thread_handle {
+        let join_result = handle
+            .join()
+            .map_err(|_| "Recording thread panicked".to_string())?;
+
+        if let Err(err) = join_result {
+            // Thread failed — but check if file was still written
+            let path_opt = NATIVE_RECORDING_OUTPUT_PATH.lock().unwrap().take();
+            if let Some(path_str) = path_opt {
+                if let Ok(metadata) = fs::metadata(&path_str) {
+                    if metadata.len() > 0 {
+                        // File exists and has content — return it anyway
+                        state.approve_path(&path_str);
+                        let _ = tauri::Emitter::emit(&app, "recording-stopped", serde_json::json!({
+                            "success": true,
+                            "path": path_str
+                        }));
+                        return Ok(serde_json::json!({
+                            "success": true,
+                            "path": path_str
+                        }));
+                    }
+                }
+            }
+            return Err(format!("Recording finalization failed: {}", err));
+        }
     }
 
     let path_str = NATIVE_RECORDING_OUTPUT_PATH
         .lock()
         .unwrap()
         .take()
-        .ok_or("Recording output path missing")?;
+        .ok_or("No recording output path found".to_string())?;
 
     let metadata = fs::metadata(&path_str)
         .map_err(|e| format!("Recording file missing after stop: {}", e))?;
