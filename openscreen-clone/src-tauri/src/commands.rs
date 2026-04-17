@@ -729,20 +729,14 @@ pub async fn native_start_recording(
         .to_string_lossy()
         .to_string();
 
-    // Get screen dimensions
-    let monitors = xcap::Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-    let monitor = monitors.first().ok_or("No monitor found")?.clone();
-    let width = monitor.width().map_err(|e| format!("Width error: {}", e))? as usize;
-    let height = monitor.height().map_err(|e| format!("Height error: {}", e))? as usize;
-
-    log::info!("Starting native recording: {}x{} -> {}", width, height, output_path);
+    log::info!("Starting native recording -> {}", output_path);
 
     // Spawn recording in background thread
     let output_clone = output_path.clone();
     *NATIVE_RECORDING_OUTPUT_PATH.lock().unwrap() = Some(output_path.clone());
 
     let handle = std::thread::spawn(move || {
-        match run_frame_capture(&output_clone, width, height) {
+        match run_frame_capture(&output_clone) {
             Ok(_) => {
                 log::info!("Recording completed: {}", output_clone);
                 Ok(())
@@ -763,13 +757,31 @@ pub async fn native_start_recording(
 
 fn run_frame_capture(
     output_path: &str,
-    width: usize,
-    height: usize,
 ) -> Result<(), String> {
     use ffmpeg_sidecar::command::FfmpegCommand;
     use std::io::Write;
 
     let fps = 30;
+
+    let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
+    let monitor = monitors.first().ok_or("No monitor")?.clone();
+
+    let first_image = monitor
+        .capture_image()
+        .map_err(|e| format!("Initial frame capture failed: {}", e))?;
+    let width = first_image.width() as usize;
+    let height = first_image.height() as usize;
+    let expected_rgba_len = width
+        .checked_mul(height)
+        .and_then(|value| value.checked_mul(4))
+        .ok_or("Frame dimensions overflow")?;
+
+    log::info!(
+        "Native recording frame size: {}x{} -> {}",
+        width,
+        height,
+        output_path
+    );
 
     let mut ffmpeg = FfmpegCommand::new()
         .args([
@@ -793,11 +805,38 @@ fn run_frame_capture(
         .take_stdin()
         .ok_or("Failed to acquire FFmpeg stdin")?;
 
-    let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
-    let monitor = monitors.first().ok_or("No monitor")?.clone();
-
     let frame_interval = Duration::from_millis(1000 / fps as u64);
     let mut last_capture = Instant::now();
+    let recording_start = Instant::now();
+    let mut frames_written: u64 = 0;
+    let mut capture_count: u64 = 0;
+    let mut last_frame = first_image.as_raw().clone();
+
+    if last_frame.len() != expected_rgba_len {
+        return Err(format!(
+            "Initial frame buffer size mismatch: got {} bytes, expected {} for {}x{} RGBA",
+            last_frame.len(),
+            expected_rgba_len,
+            width,
+            height
+        ));
+    }
+
+    let mut write_frame_until_now = |frame: &[u8]| -> Result<(), String> {
+        let elapsed = recording_start.elapsed().as_secs_f64();
+        let target_frame_count = ((elapsed * fps as f64).floor() as u64).saturating_add(1);
+
+        while frames_written < target_frame_count {
+            stdin
+                .write_all(frame)
+                .map_err(|e| format!("FFmpeg write error: {}", e))?;
+            frames_written += 1;
+        }
+
+        Ok(())
+    };
+
+    write_frame_until_now(&last_frame)?;
 
     while NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
         let elapsed = last_capture.elapsed();
@@ -808,20 +847,39 @@ fn run_frame_capture(
 
         match monitor.capture_image() {
             Ok(image) => {
-                // xcap returns RgbaImage directly — just get the raw bytes
                 let raw_bytes = image.as_raw();
 
-                // Keep FFmpeg stdin open for the entire recording session.
-                if let Err(e) = stdin.write_all(raw_bytes) {
-                    log::error!("FFmpeg write error: {}", e);
-                    break;
+                if raw_bytes.len() != expected_rgba_len {
+                    return Err(format!(
+                        "Frame buffer size mismatch: got {} bytes, expected {} for {}x{} RGBA",
+                        raw_bytes.len(),
+                        expected_rgba_len,
+                        width,
+                        height
+                    ));
                 }
+
+                last_frame.clear();
+                last_frame.extend_from_slice(raw_bytes);
+                capture_count += 1;
+
+                write_frame_until_now(&last_frame)?;
             }
             Err(e) => {
                 log::warn!("Frame capture failed: {}", e);
             }
         }
     }
+
+    write_frame_until_now(&last_frame)?;
+
+    log::info!(
+        "Native recording summary: captured {} unique frames, wrote {} frames at {} fps over {:.2}s",
+        capture_count.saturating_add(1),
+        frames_written,
+        fps,
+        recording_start.elapsed().as_secs_f64()
+    );
 
     // Graceful shutdown — close stdin to tell ffmpeg to finalize.
     let _ = stdin.flush();
