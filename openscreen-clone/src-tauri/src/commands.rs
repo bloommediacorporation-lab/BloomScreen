@@ -699,15 +699,20 @@ pub fn window_close(app: tauri::AppHandle) -> Result<Value, String> {
 // ─── Native Screen Recording Commands (macOS) ──────────────────
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 static NATIVE_RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
+static NATIVE_RECORDING_THREAD: LazyLock<Mutex<Option<std::thread::JoinHandle<Result<(), String>>>>> =
+    LazyLock::new(|| Mutex::new(None));
+static NATIVE_RECORDING_OUTPUT_PATH: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 /// Start native screen recording using frame capture + ffmpeg encoding
 #[tauri::command]
 pub async fn native_start_recording(
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<Value, String> {
     if NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
         return Err("Already recording".to_string());
@@ -734,13 +739,21 @@ pub async fn native_start_recording(
 
     // Spawn recording in background thread
     let output_clone = output_path.clone();
+    *NATIVE_RECORDING_OUTPUT_PATH.lock().unwrap() = Some(output_path.clone());
 
-    std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || {
         match run_frame_capture(&output_clone, width, height) {
-            Ok(_) => log::info!("Recording completed: {}", output_clone),
-            Err(e) => log::error!("Recording error: {}", e),
+            Ok(_) => {
+                log::info!("Recording completed: {}", output_clone);
+                Ok(())
+            }
+            Err(e) => {
+                log::error!("Recording error: {}", e);
+                Err(e)
+            }
         }
     });
+    *NATIVE_RECORDING_THREAD.lock().unwrap() = Some(handle);
 
     Ok(serde_json::json!({
         "success": true,
@@ -830,39 +843,33 @@ pub async fn native_stop_recording(
     NATIVE_RECORDING_ACTIVE.store(false, Ordering::SeqCst);
     *state.recording_active.lock().unwrap() = false;
 
-    // Wait a moment for ffmpeg to finalize
-    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let join_result = NATIVE_RECORDING_THREAD
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or("Recording thread not found")?
+        .join()
+        .map_err(|_| "Recording thread panicked".to_string())?;
 
-    // Find the most recent recording
-    let recordings_dir = AppState::recordings_dir();
-    let mut newest: Option<std::path::PathBuf> = None;
-    let mut newest_time: i64 = 0;
-
-    if let Ok(entries) = fs::read_dir(&recordings_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "mp4" || ext == "webm" {
-                    if let Ok(meta) = fs::metadata(&path) {
-                        if let Ok(modified) = meta.modified() {
-                            let time: i64 = modified
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as i64;
-                            if time > newest_time {
-                                newest_time = time;
-                                newest = Some(path);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if let Err(err) = join_result {
+        *NATIVE_RECORDING_OUTPUT_PATH.lock().unwrap() = None;
+        return Err(format!("Recording finalization failed: {}", err));
     }
 
-    if let Some(video_path) = newest {
-        let path_str = video_path.to_string_lossy().to_string();
+    let path_str = NATIVE_RECORDING_OUTPUT_PATH
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or("Recording output path missing")?;
 
+    let metadata = fs::metadata(&path_str)
+        .map_err(|e| format!("Recording file missing after stop: {}", e))?;
+
+    if metadata.len() == 0 {
+        return Err("Recording file is empty after stop".to_string());
+    }
+
+    {
         let session = RecordingSession {
             screen_video_path: path_str.clone(),
             webcam_video_path: None,
@@ -870,22 +877,19 @@ pub async fn native_stop_recording(
         };
         *state.current_recording_session.lock().unwrap() = Some(session);
         *state.current_project_path.lock().unwrap() = None;
-
-        // Emit event to frontend so it can react
-        let _ = tauri::Emitter::emit(&app, "recording-stopped", serde_json::json!({
-            "success": true,
-            "path": path_str
-        }));
-
-        return Ok(serde_json::json!({
-            "success": true,
-            "path": path_str
-        }));
     }
 
+    state.approve_path(&path_str);
+
+    // Emit event to frontend so it can react
+    let _ = tauri::Emitter::emit(&app, "recording-stopped", serde_json::json!({
+        "success": true,
+        "path": path_str
+    }));
+
     Ok(serde_json::json!({
-        "success": false,
-        "message": "No recording file found"
+        "success": true,
+        "path": path_str
     }))
 }
 

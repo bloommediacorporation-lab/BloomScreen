@@ -11,6 +11,20 @@ export function HomeScreen() {
 
 	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const startTimeRef = useRef<number>(0);
+	const openingEditorRef = useRef(false);
+
+	const openEditorForPath = useCallback(async (path: string) => {
+		if (!path || openingEditorRef.current) return;
+		openingEditorRef.current = true;
+		try {
+			await window.electronAPI?.setCurrentVideoPath?.(path);
+			await window.electronAPI?.switchToEditor?.();
+		} finally {
+			window.setTimeout(() => {
+				openingEditorRef.current = false;
+			}, 250);
+		}
+	}, []);
 
 	const stopTimer = useCallback(() => {
 		if (timerRef.current) {
@@ -35,15 +49,14 @@ export function HomeScreen() {
 			async (event: any) => {
 				const { path } = event.payload || {};
 				if (path) {
-					await window.electronAPI?.setCurrentVideoPath?.(path);
-					await window.electronAPI?.switchToEditor?.();
+					await openEditorForPath(path);
 				}
 			}
 		);
 		return () => {
 			unlisten?.then?.((fn: () => void) => fn());
 		};
-	}, []);
+	}, [openEditorForPath]);
 
 	const invoke = async (cmd: string, args?: Record<string, unknown>) => {
 		if ((window as any).__TAURI_INTERNALS__) {
@@ -69,8 +82,7 @@ export function HomeScreen() {
 		try {
 			const result = await invoke("native_stop_recording");
 			if (result.success && result.path) {
-				await window.electronAPI?.setCurrentVideoPath?.(result.path);
-				await window.electronAPI?.switchToEditor?.();
+				await openEditorForPath(result.path);
 			} else if (!result.success) {
 				toast.error(result.message || "Nu s-a găsit fișierul de înregistrare");
 			}
@@ -82,13 +94,12 @@ export function HomeScreen() {
 			setRecording(false);
 			setElapsedSeconds(0);
 		}
-	}, [stopTimer]);
+	}, [openEditorForPath, stopTimer]);
 
 	const openVideoFile = async () => {
 		const result = await window.electronAPI?.openVideoFilePicker?.();
 		if (result?.success && result.path) {
-			await window.electronAPI?.setCurrentVideoPath?.(result.path);
-			await window.electronAPI?.switchToEditor?.();
+			await openEditorForPath(result.path);
 		}
 	};
 
