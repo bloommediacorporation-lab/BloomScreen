@@ -67,6 +67,89 @@ import {
 	type MotionBlurState,
 } from "./videoPlayback/zoomTransform";
 
+function isFileUrl(value: string | undefined | null): value is string {
+	return typeof value === "string" && value.startsWith("file://");
+}
+
+function fromFileUrl(value: string | undefined | null): string {
+	if (!value) return "";
+	if (!isFileUrl(value)) return value;
+
+	try {
+		return decodeURIComponent(new URL(value).pathname);
+	} catch {
+		return value.replace(/^file:\/\//, "");
+	}
+}
+
+function toPlayableMediaSrc(input: string): string {
+	if (!input) return "";
+	if (/^(https?:|blob:|data:|file:)/i.test(input)) {
+		return input;
+	}
+
+	const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
+	const internalConvert = (window as any).__TAURI_INTERNALS__?.convertFileSrc;
+	if (typeof internalConvert === "function") {
+		try {
+			const converted = internalConvert(rawPath);
+			if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(converted)) {
+				return converted;
+			}
+		} catch {
+			// fall through
+		}
+	}
+
+	return `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+}
+
+function useResolvedMediaSrc(input?: string): string {
+	const [resolved, setResolved] = useState(() => (input ? toPlayableMediaSrc(input) : ""));
+
+	useEffect(() => {
+		if (!input) {
+			setResolved("");
+			return;
+		}
+
+		const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
+		if (/^(https?:|blob:|data:|file:)/i.test(input) || !window.electronAPI?.readBinaryFile) {
+			setResolved(toPlayableMediaSrc(input));
+			return;
+		}
+
+		let revokedUrl: string | null = null;
+		let cancelled = false;
+
+		(async () => {
+			try {
+				const result = await window.electronAPI.readBinaryFile(rawPath);
+				if (!result.success || !result.data) {
+					if (!cancelled) setResolved(toPlayableMediaSrc(input));
+					return;
+				}
+
+				revokedUrl = URL.createObjectURL(new Blob([result.data]));
+				if (!cancelled) {
+					setResolved(revokedUrl);
+				}
+			} catch {
+				if (!cancelled) setResolved(toPlayableMediaSrc(input));
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+			if (revokedUrl) {
+				URL.revokeObjectURL(revokedUrl);
+			}
+		};
+	}, [input]);
+
+	return resolved;
+}
+
 interface VideoPlaybackProps {
 	videoPath: string;
 	webcamVideoPath?: string;
@@ -178,6 +261,9 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		},
 		ref,
 	) => {
+		const playableVideoPath = useResolvedMediaSrc(videoPath);
+		const playableWebcamVideoPath = useResolvedMediaSrc(webcamVideoPath);
+
 		const videoRef = useRef<HTMLVideoElement | null>(null);
 		const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
 		const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1123,7 +1209,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				setWebcamDimensions(null);
 				return;
 			}
@@ -1142,11 +1228,11 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			return () => {
 				webcamVideo.removeEventListener("loadedmetadata", handleLoadedMetadata);
 			};
-		}, [webcamVideoPath]);
+		}, [playableWebcamVideoPath]);
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				return;
 			}
 
@@ -1171,17 +1257,17 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			webcamVideo.play().catch(() => {
 				// Ignore webcam autoplay restoration failures.
 			});
-		}, [currentTime, isPlaying, speedRegions, webcamVideoPath]);
+		}, [currentTime, isPlaying, speedRegions, playableWebcamVideoPath]);
 
 		useEffect(() => {
 			const webcamVideo = webcamVideoRef.current;
-			if (!webcamVideo || !webcamVideoPath) {
+			if (!webcamVideo || !playableWebcamVideoPath) {
 				return;
 			}
 
 			webcamVideo.pause();
 			webcamVideo.currentTime = 0;
-		}, [webcamVideoPath]);
+		}, [playableWebcamVideoPath]);
 
 		useEffect(() => {
 			let mounted = true;
@@ -1290,7 +1376,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 								: "none",
 					}}
 				/>
-				{webcamVideoPath &&
+				{playableWebcamVideoPath &&
 					(() => {
 						const clipPath = getCssClipPath(webcamLayout?.maskShape ?? "rectangle");
 						const useClipPath = !!clipPath;
@@ -1312,7 +1398,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 							>
 								<video
 									ref={webcamVideoRef}
-									src={webcamVideoPath}
+									src={playableWebcamVideoPath}
 									className={`w-full h-full object-cover ${webcamLayoutPreset === "picture-in-picture" ? "cursor-grab active:cursor-grabbing" : "pointer-events-none"}`}
 									style={{
 										borderRadius: useClipPath ? 0 : (webcamLayout?.borderRadius ?? 0),
@@ -1472,7 +1558,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				)}
 				<video
 					ref={videoRef}
-					src={videoPath}
+					src={playableVideoPath}
 					className="hidden"
 					preload="metadata"
 					playsInline
