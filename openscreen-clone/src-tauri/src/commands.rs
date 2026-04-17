@@ -871,20 +871,35 @@ fn run_frame_capture(
 ) -> Result<(), String> {
     use ffmpeg_sidecar::command::FfmpegCommand;
     use std::io::Write;
+    use std::sync::mpsc::RecvTimeoutError;
 
     let fps = 60;
+    let frame_interval = Duration::from_secs_f64(1.0 / fps as f64);
     let monitor = get_monitor_for_recording()?;
     let monitor_name = monitor
         .name()
         .unwrap_or_else(|_| "Unknown monitor".to_string());
     let monitor_bounds = get_monitor_bounds(&monitor);
 
-    let first_image = monitor
-        .capture_image()
-        .map_err(|e| format!("Initial frame capture failed: {}", e))?;
-    let width = first_image.width() as usize;
-    let height = first_image.height() as usize;
-    let expected_rgba_len = width
+    let (video_recorder, receiver) = monitor
+        .video_recorder()
+        .map_err(|e| format!("Video recorder init failed: {}", e))?;
+
+    video_recorder
+        .start()
+        .map_err(|e| format!("Video recorder start failed: {}", e))?;
+
+    let first_frame = match receiver.recv_timeout(Duration::from_secs(3)) {
+        Ok(frame) => frame,
+        Err(err) => {
+            let _ = video_recorder.stop();
+            return Err(format!("Initial video frame capture failed: {}", err));
+        }
+    };
+
+    let width = first_frame.width as usize;
+    let height = first_frame.height as usize;
+    let expected_raw_len = width
         .checked_mul(height)
         .and_then(|value| value.checked_mul(4))
         .ok_or("Frame dimensions overflow")?;
@@ -901,7 +916,7 @@ fn run_frame_capture(
         .args([
             "-y",
             "-f", "rawvideo",
-            "-pix_fmt", "rgba",
+            "-pix_fmt", "bgra",
             "-s", &format!("{}x{}", width, height),
             "-r", &fps.to_string(),
             "-i", "pipe:0",
@@ -919,77 +934,82 @@ fn run_frame_capture(
         .take_stdin()
         .ok_or("Failed to acquire FFmpeg stdin")?;
 
-    let frame_interval = Duration::from_secs_f64(1.0 / fps as f64);
-    let mut last_capture = Instant::now();
     let recording_start = Instant::now();
+    let mut next_frame_at = recording_start;
     let mut frames_written: u64 = 0;
-    let mut capture_count: u64 = 0;
-    let mut last_frame = first_image.as_raw().clone();
+    let mut capture_count: u64 = 1;
+    let mut last_frame = first_frame.raw;
     let mut cursor_samples: Vec<CursorTelemetryPoint> = Vec::new();
     let display_bounds = monitor_bounds;
 
-    if last_frame.len() != expected_rgba_len {
+    if last_frame.len() != expected_raw_len {
+        let _ = video_recorder.stop();
         return Err(format!(
-            "Initial frame buffer size mismatch: got {} bytes, expected {} for {}x{} RGBA",
+            "Initial frame buffer size mismatch: got {} bytes, expected {} for {}x{} BGRA",
             last_frame.len(),
-            expected_rgba_len,
+            expected_raw_len,
             width,
             height
         ));
     }
 
-	    let mut write_frame_until_now = |frame: &[u8]| -> Result<(), String> {
-        let elapsed = recording_start.elapsed().as_secs_f64();
-        let target_frame_count = ((elapsed * fps as f64).floor() as u64).saturating_add(1);
+    let mut write_frame = |frame: &[u8]| -> Result<(), String> {
+        stdin
+            .write_all(frame)
+            .map_err(|e| format!("FFmpeg write error: {}", e))?;
+        frames_written += 1;
 
-        while frames_written < target_frame_count {
-            stdin
-                .write_all(frame)
-                .map_err(|e| format!("FFmpeg write error: {}", e))?;
-            frames_written += 1;
-        }
+        capture_cursor_sample(&mut cursor_samples, recording_start, display_bounds);
 
         Ok(())
-	    };
-
-	    capture_cursor_sample(&mut cursor_samples, recording_start, display_bounds);
-	    write_frame_until_now(&last_frame)?;
+    };
 
     while NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
-        let elapsed = last_capture.elapsed();
-        if elapsed < frame_interval {
-            std::thread::sleep(frame_interval - elapsed);
+        let now = Instant::now();
+
+        while now >= next_frame_at {
+            write_frame(&last_frame)?;
+            next_frame_at += frame_interval;
         }
-        last_capture = Instant::now();
 
-        match monitor.capture_image() {
-            Ok(image) => {
-                let raw_bytes = image.as_raw();
-
-                if raw_bytes.len() != expected_rgba_len {
+        let wait_duration = next_frame_at.saturating_duration_since(Instant::now());
+        match receiver.recv_timeout(wait_duration) {
+            Ok(frame) => {
+                if frame.raw.len() != expected_raw_len {
+                    let _ = video_recorder.stop();
                     return Err(format!(
-                        "Frame buffer size mismatch: got {} bytes, expected {} for {}x{} RGBA",
-                        raw_bytes.len(),
-                        expected_rgba_len,
+                        "Frame buffer size mismatch: got {} bytes, expected {} for {}x{} BGRA",
+                        frame.raw.len(),
+                        expected_raw_len,
                         width,
                         height
                     ));
                 }
 
-                last_frame.clear();
-                last_frame.extend_from_slice(raw_bytes);
+                last_frame = frame.raw;
                 capture_count += 1;
-                capture_cursor_sample(&mut cursor_samples, recording_start, display_bounds);
-
-                write_frame_until_now(&last_frame)?;
             }
-            Err(e) => {
-                log::warn!("Frame capture failed: {}", e);
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                let _ = video_recorder.stop();
+                return Err("Video recorder disconnected unexpectedly".to_string());
             }
         }
     }
 
-    write_frame_until_now(&last_frame)?;
+    let _ = video_recorder.stop();
+
+    while let Ok(frame) = receiver.try_recv() {
+        if frame.raw.len() == expected_rgba_len {
+            last_frame = frame.raw;
+            capture_count += 1;
+        }
+    }
+
+    while Instant::now() >= next_frame_at {
+        write_frame(&last_frame)?;
+        next_frame_at += frame_interval;
+    }
 
     let telemetry_path = format!("{}.cursor.json", output_path);
     fs::write(
@@ -1000,7 +1020,7 @@ fn run_frame_capture(
 
     log::info!(
         "Native recording summary: captured {} unique frames, wrote {} frames at {} fps over {:.2}s, cursor samples {}",
-        capture_count.saturating_add(1),
+        capture_count,
         frames_written,
         fps,
         recording_start.elapsed().as_secs_f64(),
