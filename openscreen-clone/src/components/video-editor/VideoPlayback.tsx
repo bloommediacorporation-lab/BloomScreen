@@ -142,15 +142,22 @@ function toPlayableMediaSrc(input: string): string {
 	if (typeof internalConvert === "function") {
 		try {
 			const converted = internalConvert(rawPath);
-			if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(converted)) {
+			if (converted && /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(converted)) {
+				console.log("[VideoPlayback] convertFileSrc:", rawPath, "→", converted);
 				return converted;
 			}
-		} catch {
-			// fall through
+			console.warn("[VideoPlayback] convertFileSrc returned invalid:", converted);
+		} catch (e) {
+			console.warn("[VideoPlayback] convertFileSrc failed:", e);
 		}
+	} else {
+		console.warn("[VideoPlayback] convertFileSrc not available");
 	}
 
-	return `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+	// Last resort: file:// (will likely fail in webview, but log it)
+	const fallback = `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
+	console.error("[VideoPlayback] Falling back to file:// URL — this will likely fail:", fallback);
+	return fallback;
 }
 
 function getMediaMimeType(path: string): string {

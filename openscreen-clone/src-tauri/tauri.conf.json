@@ -9,6 +9,18 @@
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build-vite"
   },
+  "plugins": {
+    "fs": {
+      "scope": {
+        "allow": [
+          { "path": "$APPDATA/**" },
+          { "path": "$HOME/**" },
+          { "path": "$RESOURCE/**" }
+        ],
+        "deny": []
+      }
+    }
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [
@@ -25,7 +37,17 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": [
+            { "path": "$APPDATA/**" },
+            { "path": "$HOME/**" },
+            { "path": "$RESOURCE/**" }
+          ]
+        }
+      }
     },
     "trayIcon": {
       "iconPath": "icons/icon.png",
