@@ -1000,7 +1000,7 @@ fn run_frame_capture(
     let _ = video_recorder.stop();
 
     while let Ok(frame) = receiver.try_recv() {
-        if frame.raw.len() == expected_rgba_len {
+        if frame.raw.len() == expected_raw_len {
             last_frame = frame.raw;
             capture_count += 1;
         }
