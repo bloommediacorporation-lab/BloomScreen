@@ -208,17 +208,6 @@ function useResolvedMediaSrc(input?: string): string {
 			return;
 		}
 
-		const tauriFileSrc = getTauriFileSrc(rawPath);
-		if (tauriFileSrc) {
-			console.debug("[VideoPlayback] tauri media src", {
-				input,
-				rawPath,
-				resolved: tauriFileSrc,
-			});
-			setResolved(tauriFileSrc);
-			return;
-		}
-
 		setResolved("");
 
 		let revokedUrl: string | null = null;
@@ -228,12 +217,14 @@ function useResolvedMediaSrc(input?: string): string {
 			try {
 				const result = await window.electronAPI.readBinaryFile(rawPath);
 				if (!result.success || !result.data) {
+					const tauriFileSrc = getTauriFileSrc(rawPath);
 					console.warn("[VideoPlayback] binary read failed, falling back", {
 						input,
 						rawPath,
+						tauriFileSrc,
 						result,
 					});
-					if (!cancelled) setResolved(toPlayableMediaSrc(input));
+					if (!cancelled) setResolved(tauriFileSrc || toPlayableMediaSrc(input));
 					return;
 				}
 
@@ -251,12 +242,14 @@ function useResolvedMediaSrc(input?: string): string {
 					setResolved(revokedUrl);
 				}
 			} catch (error) {
+				const tauriFileSrc = getTauriFileSrc(rawPath);
 				console.error("[VideoPlayback] media resolution failed", {
 					input,
 					rawPath,
+					tauriFileSrc,
 					error,
 				});
-				if (!cancelled) setResolved(toPlayableMediaSrc(input));
+				if (!cancelled) setResolved(tauriFileSrc || toPlayableMediaSrc(input));
 			}
 		})();
 
