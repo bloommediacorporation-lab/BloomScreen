@@ -1,9 +1,57 @@
-use crate::state::{AppState, DesktopSource, RecordingSession, StoreRecordedSessionInput};
+use crate::state::{
+    AppState, CursorTelemetryPoint, DesktopSource, RecordingSession, StoreRecordedSessionInput,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+
+#[cfg(target_os = "macos")]
+use std::ffi::c_void;
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGPoint {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGSize {
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGRect {
+    origin: CGPoint,
+    size: CGSize,
+}
+
+#[cfg(target_os = "macos")]
+type CGDirectDisplayID = u32;
+
+#[cfg(target_os = "macos")]
+type CGEventRef = *mut c_void;
+
+#[cfg(target_os = "macos")]
+type CFTypeRef = *const c_void;
+
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn CGEventCreate(source: *const c_void) -> CGEventRef;
+    fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+    fn CGMainDisplayID() -> CGDirectDisplayID;
+    fn CGDisplayBounds(display: CGDirectDisplayID) -> CGRect;
+    fn CFRelease(cf: CFTypeRef);
+}
 
 // ─── File System Commands ───────────────────────────────────────
 
@@ -708,6 +756,78 @@ static NATIVE_RECORDING_THREAD: LazyLock<Mutex<Option<std::thread::JoinHandle<Re
 static NATIVE_RECORDING_OUTPUT_PATH: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
+#[cfg(target_os = "macos")]
+fn get_main_display_bounds() -> Option<(f64, f64, f64, f64)> {
+    unsafe {
+        let display = CGMainDisplayID();
+        let bounds = CGDisplayBounds(display);
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return None;
+        }
+
+        Some((
+            bounds.origin.x,
+            bounds.origin.y,
+            bounds.size.width,
+            bounds.size.height,
+        ))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn get_main_display_bounds() -> Option<(f64, f64, f64, f64)> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn get_global_cursor_position() -> Option<(f64, f64)> {
+    unsafe {
+        let event = CGEventCreate(std::ptr::null());
+        if event.is_null() {
+            return None;
+        }
+
+        let location = CGEventGetLocation(event);
+        CFRelease(event as CFTypeRef);
+        Some((location.x, location.y))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn get_global_cursor_position() -> Option<(f64, f64)> {
+    None
+}
+
+fn capture_cursor_sample(
+    samples: &mut Vec<CursorTelemetryPoint>,
+    recording_start: Instant,
+    display_bounds: Option<(f64, f64, f64, f64)>,
+) {
+    let Some((display_x, display_y, display_width, display_height)) = display_bounds else {
+        return;
+    };
+    let Some((cursor_x, cursor_y)) = get_global_cursor_position() else {
+        return;
+    };
+
+    if display_width <= 0.0 || display_height <= 0.0 {
+        return;
+    }
+
+    let normalized_x = (cursor_x - display_x) / display_width;
+    let normalized_y = (cursor_y - display_y) / display_height;
+
+    if !(0.0..=1.0).contains(&normalized_x) || !(0.0..=1.0).contains(&normalized_y) {
+        return;
+    }
+
+    samples.push(CursorTelemetryPoint {
+        time_ms: recording_start.elapsed().as_millis() as i64,
+        cx: normalized_x,
+        cy: normalized_y,
+    });
+}
+
 /// Start native screen recording using frame capture + ffmpeg encoding
 #[tauri::command]
 pub async fn native_start_recording(
@@ -811,6 +931,8 @@ fn run_frame_capture(
     let mut frames_written: u64 = 0;
     let mut capture_count: u64 = 0;
     let mut last_frame = first_image.as_raw().clone();
+    let mut cursor_samples: Vec<CursorTelemetryPoint> = Vec::new();
+    let display_bounds = get_main_display_bounds();
 
     if last_frame.len() != expected_rgba_len {
         return Err(format!(
@@ -822,7 +944,7 @@ fn run_frame_capture(
         ));
     }
 
-    let mut write_frame_until_now = |frame: &[u8]| -> Result<(), String> {
+	    let mut write_frame_until_now = |frame: &[u8]| -> Result<(), String> {
         let elapsed = recording_start.elapsed().as_secs_f64();
         let target_frame_count = ((elapsed * fps as f64).floor() as u64).saturating_add(1);
 
@@ -834,9 +956,10 @@ fn run_frame_capture(
         }
 
         Ok(())
-    };
+	    };
 
-    write_frame_until_now(&last_frame)?;
+	    capture_cursor_sample(&mut cursor_samples, recording_start, display_bounds);
+	    write_frame_until_now(&last_frame)?;
 
     while NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
         let elapsed = last_capture.elapsed();
@@ -862,6 +985,7 @@ fn run_frame_capture(
                 last_frame.clear();
                 last_frame.extend_from_slice(raw_bytes);
                 capture_count += 1;
+                capture_cursor_sample(&mut cursor_samples, recording_start, display_bounds);
 
                 write_frame_until_now(&last_frame)?;
             }
@@ -873,12 +997,20 @@ fn run_frame_capture(
 
     write_frame_until_now(&last_frame)?;
 
+    let telemetry_path = format!("{}.cursor.json", output_path);
+    fs::write(
+        &telemetry_path,
+        serde_json::json!({ "samples": cursor_samples }).to_string(),
+    )
+    .map_err(|e| format!("Failed to write cursor telemetry: {}", e))?;
+
     log::info!(
-        "Native recording summary: captured {} unique frames, wrote {} frames at {} fps over {:.2}s",
+        "Native recording summary: captured {} unique frames, wrote {} frames at {} fps over {:.2}s, cursor samples {}",
         capture_count.saturating_add(1),
         frames_written,
         fps,
-        recording_start.elapsed().as_secs_f64()
+        recording_start.elapsed().as_secs_f64(),
+        cursor_samples.len()
     );
 
     // Graceful shutdown — close stdin to tell ffmpeg to finalize.
