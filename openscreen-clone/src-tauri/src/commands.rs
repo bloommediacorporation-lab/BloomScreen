@@ -847,7 +847,10 @@ pub async fn native_start_recording(
     *NATIVE_RECORDING_OUTPUT_PATH.lock().unwrap() = Some(output_path.clone());
 
     let handle = std::thread::spawn(move || {
-        match run_frame_capture(&output_clone) {
+        let result = run_frame_capture(&output_clone);
+        // Always reset flag when thread exits, so stop doesn't hang
+        NATIVE_RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+        match result {
             Ok(_) => {
                 log::info!("Recording completed: {}", output_clone);
                 Ok(())
@@ -1041,7 +1044,11 @@ pub async fn native_stop_recording(
     app: tauri::AppHandle,
 ) -> Result<Value, String> {
     if !NATIVE_RECORDING_ACTIVE.load(Ordering::SeqCst) {
-        return Err("Not recording".to_string());
+        // Not recording — return success:false so frontend can reset UI without error toast
+        return Ok(serde_json::json!({
+            "success": false,
+            "message": "Not recording"
+        }));
     }
 
     NATIVE_RECORDING_ACTIVE.store(false, Ordering::SeqCst);

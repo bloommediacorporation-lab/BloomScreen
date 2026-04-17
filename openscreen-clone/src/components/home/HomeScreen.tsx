@@ -83,9 +83,10 @@ export function HomeScreen() {
 			const result = await invoke("native_stop_recording");
 			if (result.success && result.path) {
 				await openEditorForPath(result.path);
-			} else if (!result.success) {
+			} else if (!result.success && result.message !== "Not recording") {
 				toast.error(result.message || "Nu s-a găsit fișierul de înregistrare");
 			}
+			// If "Not recording", just silently reset UI
 		} catch (err: any) {
 			console.error("Stop recording failed:", err);
 			toast.error(`Eroare la oprire: ${err?.message || err}`);
