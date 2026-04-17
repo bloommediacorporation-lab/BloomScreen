@@ -104,6 +104,28 @@ function toPlayableMediaSrc(input: string): string {
 	return `file://${rawPath.startsWith("/") ? rawPath : `/${rawPath}`}`;
 }
 
+function getMediaMimeType(path: string): string {
+	const normalized = path.split("?")[0].split("#")[0].toLowerCase();
+	if (normalized.endsWith(".mp4") || normalized.endsWith(".m4v")) return "video/mp4";
+	if (normalized.endsWith(".webm")) return "video/webm";
+	if (normalized.endsWith(".mov")) return "video/quicktime";
+	if (normalized.endsWith(".ogg") || normalized.endsWith(".ogv")) return "video/ogg";
+	if (normalized.endsWith(".m3u8")) return "application/vnd.apple.mpegurl";
+	return "application/octet-stream";
+}
+
+function getTauriFileSrc(path: string): string {
+	const internalConvert = (window as any).__TAURI_INTERNALS__?.convertFileSrc;
+	if (typeof internalConvert !== "function") return "";
+
+	try {
+		const converted = internalConvert(path);
+		return /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(converted) ? converted : "";
+	} catch {
+		return "";
+	}
+}
+
 function useResolvedMediaSrc(input?: string): string {
 	const [resolved, setResolved] = useState("");
 
@@ -116,6 +138,12 @@ function useResolvedMediaSrc(input?: string): string {
 		const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
 		if (/^(https?:|blob:|data:)/i.test(input) || !window.electronAPI?.readBinaryFile) {
 			setResolved(toPlayableMediaSrc(input));
+			return;
+		}
+
+		const tauriFileSrc = getTauriFileSrc(rawPath);
+		if (tauriFileSrc) {
+			setResolved(tauriFileSrc);
 			return;
 		}
 
@@ -132,7 +160,9 @@ function useResolvedMediaSrc(input?: string): string {
 					return;
 				}
 
-				revokedUrl = URL.createObjectURL(new Blob([result.data]));
+				revokedUrl = URL.createObjectURL(
+					new Blob([result.data], { type: getMediaMimeType(rawPath) }),
+				);
 				if (!cancelled) {
 					setResolved(revokedUrl);
 				}

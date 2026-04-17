@@ -76,12 +76,15 @@ if (!window.electronAPI) {
 
 		getShortcuts: async () => {
 			const result = await tauriAPI.getShortcuts();
-			return (result as unknown) ?? null;
+			return (result as Record<string, unknown> | null) ?? null;
 		},
 
 		saveShortcuts: async (shortcuts) => {
 			const result = await tauriAPI.saveShortcuts(shortcuts);
-			return result as { success?: boolean; error?: string };
+			return {
+				success: Boolean((result as { success?: boolean })?.success),
+				error: (result as { error?: string })?.error,
+			};
 		},
 
 		getAssetBasePath: async () => {

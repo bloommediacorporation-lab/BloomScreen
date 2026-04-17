@@ -55,6 +55,9 @@ interface Window {
 			message?: string;
 			error?: string;
 		}>;
+		getPlatform: () => Promise<string>;
+		getShortcuts: () => Promise<Record<string, unknown> | null>;
+		saveShortcuts: (shortcuts: unknown) => Promise<{ success: boolean; error?: string }>;
 		getAssetBasePath: () => Promise<string | null>;
 		setRecordingState: (recording: boolean) => Promise<void>;
 		getCursorTelemetry: (videoPath?: string) => Promise<{
