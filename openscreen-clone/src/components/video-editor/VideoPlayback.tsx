@@ -133,7 +133,7 @@ export interface VideoPlaybackRef {
 
 function toPlayableMediaSrc(input: string): string {
 	if (!input) return "";
-	if (/^(https?:|blob:|data:|file:)/i.test(input)) {
+	if (/^(https?:|blob:|data:)/i.test(input)) {
 		return input;
 	}
 
@@ -163,7 +163,7 @@ function useResolvedMediaSrc(input?: string): string {
 		}
 
 		const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
-		if (/^(https?:|blob:|data:|file:)/i.test(input) || !window.electronAPI?.readBinaryFile) {
+		if (/^(https?:|blob:|data:)/i.test(input) || !window.electronAPI?.readBinaryFile) {
 			setResolved(toPlayableMediaSrc(input));
 			return;
 		}
