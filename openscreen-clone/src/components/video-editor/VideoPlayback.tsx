@@ -175,6 +175,23 @@ function getTauriFileSrc(path: string): string {
 	}
 }
 
+function describeMediaError(error: MediaError | null): string {
+	if (!error) return "unknown-media-error";
+
+	const codeName =
+		error.code === MediaError.MEDIA_ERR_ABORTED
+			? "MEDIA_ERR_ABORTED"
+			: error.code === MediaError.MEDIA_ERR_NETWORK
+				? "MEDIA_ERR_NETWORK"
+				: error.code === MediaError.MEDIA_ERR_DECODE
+					? "MEDIA_ERR_DECODE"
+					: error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+						? "MEDIA_ERR_SRC_NOT_SUPPORTED"
+						: `MEDIA_ERR_${error.code}`;
+
+	return `${codeName}${error.message ? ` (${error.message})` : ""}`;
+}
+
 function useResolvedMediaSrc(input?: string): string {
 	const [resolved, setResolved] = useState("");
 
@@ -186,12 +203,18 @@ function useResolvedMediaSrc(input?: string): string {
 
 		const rawPath = isFileUrl(input) ? fromFileUrl(input) : input;
 		if (/^(https?:|blob:|data:)/i.test(input) || !window.electronAPI?.readBinaryFile) {
+			console.debug("[VideoPlayback] direct media src", { input, rawPath });
 			setResolved(toPlayableMediaSrc(input));
 			return;
 		}
 
 		const tauriFileSrc = getTauriFileSrc(rawPath);
 		if (tauriFileSrc) {
+			console.debug("[VideoPlayback] tauri media src", {
+				input,
+				rawPath,
+				resolved: tauriFileSrc,
+			});
 			setResolved(tauriFileSrc);
 			return;
 		}
@@ -205,6 +228,11 @@ function useResolvedMediaSrc(input?: string): string {
 			try {
 				const result = await window.electronAPI.readBinaryFile(rawPath);
 				if (!result.success || !result.data) {
+					console.warn("[VideoPlayback] binary read failed, falling back", {
+						input,
+						rawPath,
+						result,
+					});
 					if (!cancelled) setResolved(toPlayableMediaSrc(input));
 					return;
 				}
@@ -212,10 +240,22 @@ function useResolvedMediaSrc(input?: string): string {
 				revokedUrl = URL.createObjectURL(
 					new Blob([result.data], { type: getMediaMimeType(rawPath) }),
 				);
+				console.debug("[VideoPlayback] blob media src", {
+					input,
+					rawPath,
+					mime: getMediaMimeType(rawPath),
+					byteLength: result.data.byteLength,
+					resolved: revokedUrl,
+				});
 				if (!cancelled) {
 					setResolved(revokedUrl);
 				}
-			} catch {
+			} catch (error) {
+				console.error("[VideoPlayback] media resolution failed", {
+					input,
+					rawPath,
+					error,
+				});
 				if (!cancelled) setResolved(toPlayableMediaSrc(input));
 			}
 		})();
@@ -1199,6 +1239,14 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 
 		const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
 			const video = e.currentTarget;
+			console.debug("[VideoPlayback] loaded metadata", {
+				src: video.currentSrc,
+				readyState: video.readyState,
+				networkState: video.networkState,
+				videoWidth: video.videoWidth,
+				videoHeight: video.videoHeight,
+				duration: video.duration,
+			});
 			onDurationChange(video.duration);
 			video.currentTime = 0;
 			video.pause();
@@ -1592,7 +1640,19 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					onDurationChange={(e) => {
 						onDurationChange(e.currentTarget.duration);
 					}}
-					onError={() => onError("Failed to load video")}
+					onError={(e) => {
+						const video = e.currentTarget;
+						const details = {
+							src: video.currentSrc,
+							readyState: video.readyState,
+							networkState: video.networkState,
+							error: describeMediaError(video.error),
+						};
+						console.error("[VideoPlayback] video element error", details);
+						onError(
+							`Failed to load video (${details.error}, networkState=${details.networkState}, readyState=${details.readyState})`,
+						);
+					}}
 				/>
 			</div>
 		);
