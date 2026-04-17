@@ -39,7 +39,9 @@ pub struct DesktopSource {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CursorTelemetryPoint {
+    #[serde(alias = "time_ms")]
     pub time_ms: i64,
     pub cx: f64,
     pub cy: f64,

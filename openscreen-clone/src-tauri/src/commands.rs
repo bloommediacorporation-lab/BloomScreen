@@ -509,14 +509,20 @@ pub async fn get_cursor_telemetry(
     state: State<'_, AppState>,
     video_path: Option<String>,
 ) -> Result<Value, String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CursorTelemetryFile {
+        samples: Vec<CursorTelemetryPoint>,
+    }
+
     // Try to load from file first
     if let Some(ref vp) = video_path {
         let telemetry_path = format!("{}.cursor.json", vp);
         if let Ok(content) = fs::read_to_string(&telemetry_path) {
-            if let Ok(parsed) = serde_json::from_str::<Value>(&content) {
+            if let Ok(parsed) = serde_json::from_str::<CursorTelemetryFile>(&content) {
                 return Ok(serde_json::json!({
                     "success": true,
-                    "samples": parsed.get("samples").cloned().unwrap_or(serde_json::json!([]))
+                    "samples": parsed.samples
                 }));
             }
         }
