@@ -154,7 +154,7 @@ function toPlayableMediaSrc(input: string): string {
 }
 
 function useResolvedMediaSrc(input?: string): string {
-	const [resolved, setResolved] = useState(() => (input ? toPlayableMediaSrc(input) : ""));
+	const [resolved, setResolved] = useState("");
 
 	useEffect(() => {
 		if (!input) {
@@ -167,6 +167,8 @@ function useResolvedMediaSrc(input?: string): string {
 			setResolved(toPlayableMediaSrc(input));
 			return;
 		}
+
+		setResolved("");
 
 		let revokedUrl: string | null = null;
 		let cancelled = false;
