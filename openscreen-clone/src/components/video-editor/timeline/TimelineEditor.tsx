@@ -48,7 +48,7 @@ const BLUR_ROW_ID = "row-blur";
 const SPEED_ROW_ID = "row-speed";
 const FALLBACK_RANGE_MS = 1000;
 const TARGET_MARKER_COUNT = 12;
-const SUGGESTION_SPACING_MS = 1800;
+const SUGGESTION_SPACING_MS = 2400;
 
 interface TimelineEditorProps {
 	videoDuration: number;

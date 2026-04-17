@@ -709,12 +709,13 @@ export default function VideoEditor() {
 	const handleZoomSuggested = useCallback(
 		(span: Span, focus: ZoomFocus) => {
 			const id = `zoom-${nextZoomIdRef.current++}`;
+			const smartZoomDepth = 4;
 			const newRegion: ZoomRegion = {
 				id,
 				startMs: Math.round(span.start),
 				endMs: Math.round(span.end),
-				depth: DEFAULT_ZOOM_DEPTH,
-				focus: clampFocusToDepth(focus, DEFAULT_ZOOM_DEPTH),
+				depth: smartZoomDepth,
+				focus: clampFocusToDepth(focus, smartZoomDepth),
 				focusMode: "auto",
 			};
 			pushState((prev) => ({ zoomRegions: [...prev.zoomRegions, newRegion] }));

@@ -19,25 +19,6 @@ struct CGPoint {
 }
 
 #[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CGSize {
-    width: f64,
-    height: f64,
-}
-
-#[cfg(target_os = "macos")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct CGRect {
-    origin: CGPoint,
-    size: CGSize,
-}
-
-#[cfg(target_os = "macos")]
-type CGDirectDisplayID = u32;
-
-#[cfg(target_os = "macos")]
 type CGEventRef = *mut c_void;
 
 #[cfg(target_os = "macos")]
@@ -48,8 +29,6 @@ type CFTypeRef = *const c_void;
 unsafe extern "C" {
     fn CGEventCreate(source: *const c_void) -> CGEventRef;
     fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
-    fn CGMainDisplayID() -> CGDirectDisplayID;
-    fn CGDisplayBounds(display: CGDirectDisplayID) -> CGRect;
     fn CFRelease(cf: CFTypeRef);
 }
 
@@ -762,27 +741,33 @@ static NATIVE_RECORDING_THREAD: LazyLock<Mutex<Option<std::thread::JoinHandle<Re
 static NATIVE_RECORDING_OUTPUT_PATH: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
-#[cfg(target_os = "macos")]
-fn get_main_display_bounds() -> Option<(f64, f64, f64, f64)> {
-    unsafe {
-        let display = CGMainDisplayID();
-        let bounds = CGDisplayBounds(display);
-        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
-            return None;
-        }
-
-        Some((
-            bounds.origin.x,
-            bounds.origin.y,
-            bounds.size.width,
-            bounds.size.height,
-        ))
-    }
+fn get_monitor_bounds(monitor: &xcap::Monitor) -> Option<(f64, f64, f64, f64)> {
+    Some((
+        monitor.x().ok()? as f64,
+        monitor.y().ok()? as f64,
+        monitor.width().ok()? as f64,
+        monitor.height().ok()? as f64,
+    ))
 }
 
-#[cfg(not(target_os = "macos"))]
-fn get_main_display_bounds() -> Option<(f64, f64, f64, f64)> {
-    None
+fn get_monitor_for_recording() -> Result<xcap::Monitor, String> {
+    let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
+
+    if let Some((cursor_x, cursor_y)) = get_global_cursor_position() {
+        if let Ok(monitor) = xcap::Monitor::from_point(cursor_x as i32, cursor_y as i32) {
+            return Ok(monitor);
+        }
+    }
+
+    if let Some(primary) = monitors
+        .iter()
+        .find(|monitor| monitor.is_primary().unwrap_or(false))
+        .cloned()
+    {
+        return Ok(primary);
+    }
+
+    monitors.into_iter().next().ok_or("No monitor".to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -887,10 +872,12 @@ fn run_frame_capture(
     use ffmpeg_sidecar::command::FfmpegCommand;
     use std::io::Write;
 
-    let fps = 30;
-
-    let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
-    let monitor = monitors.first().ok_or("No monitor")?.clone();
+    let fps = 60;
+    let monitor = get_monitor_for_recording()?;
+    let monitor_name = monitor
+        .name()
+        .unwrap_or_else(|_| "Unknown monitor".to_string());
+    let monitor_bounds = get_monitor_bounds(&monitor);
 
     let first_image = monitor
         .capture_image()
@@ -903,9 +890,10 @@ fn run_frame_capture(
         .ok_or("Frame dimensions overflow")?;
 
     log::info!(
-        "Native recording frame size: {}x{} -> {}",
+        "Native recording frame size: {}x{} on {} -> {}",
         width,
         height,
+        monitor_name,
         output_path
     );
 
@@ -931,14 +919,14 @@ fn run_frame_capture(
         .take_stdin()
         .ok_or("Failed to acquire FFmpeg stdin")?;
 
-    let frame_interval = Duration::from_millis(1000 / fps as u64);
+    let frame_interval = Duration::from_secs_f64(1.0 / fps as f64);
     let mut last_capture = Instant::now();
     let recording_start = Instant::now();
     let mut frames_written: u64 = 0;
     let mut capture_count: u64 = 0;
     let mut last_frame = first_image.as_raw().clone();
     let mut cursor_samples: Vec<CursorTelemetryPoint> = Vec::new();
-    let display_bounds = get_main_display_bounds();
+    let display_bounds = monitor_bounds;
 
     if last_frame.len() != expected_rgba_len {
         return Err(format!(

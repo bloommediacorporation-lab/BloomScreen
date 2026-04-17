@@ -1,8 +1,9 @@
 import type { CursorTelemetryPoint, ZoomFocus } from "../types";
 
-export const MIN_DWELL_DURATION_MS = 450;
-export const MAX_DWELL_DURATION_MS = 2600;
-export const DWELL_MOVE_THRESHOLD = 0.02;
+export const MIN_DWELL_DURATION_MS = 650;
+export const MAX_DWELL_DURATION_MS = 3200;
+export const DWELL_MOVE_THRESHOLD = 0.012;
+export const MAX_DWELL_DRIFT_THRESHOLD = 0.05;
 
 export interface ZoomDwellCandidate {
 	centerTimeMs: number;
@@ -55,13 +56,24 @@ export function detectZoomDwellCandidates(samples: CursorTelemetryPoint[]): Zoom
 		}
 
 		const runSamples = samples.slice(startIndex, endIndexExclusive);
+		const anchor = runSamples[0];
+		const maxDrift = runSamples.reduce(
+			(max, sample) =>
+				Math.max(max, Math.hypot(sample.cx - anchor.cx, sample.cy - anchor.cy)),
+			0,
+		);
+		if (maxDrift > MAX_DWELL_DRIFT_THRESHOLD) {
+			return;
+		}
+
 		const avgCx = runSamples.reduce((sum, sample) => sum + sample.cx, 0) / runSamples.length;
 		const avgCy = runSamples.reduce((sum, sample) => sum + sample.cy, 0) / runSamples.length;
+		const stillnessScore = 1 - maxDrift / MAX_DWELL_DRIFT_THRESHOLD;
 
 		dwellCandidates.push({
 			centerTimeMs: Math.round((start.timeMs + end.timeMs) / 2),
 			focus: { cx: avgCx, cy: avgCy },
-			strength: runDuration,
+			strength: runDuration * Math.max(0.35, stillnessScore),
 		});
 	};
 
