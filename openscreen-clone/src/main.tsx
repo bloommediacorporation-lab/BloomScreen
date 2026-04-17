@@ -71,6 +71,9 @@ if (typeof window !== 'undefined') {
         return tauriInvoke("store_recorded_session", { payload });
       },
       getRecordedVideoPath: async () => tauriInvoke("get_current_video_path"),
+      getPlatform: async () => tauriInvoke("get_platform"),
+      getShortcuts: async () => tauriInvoke("get_shortcuts"),
+      saveShortcuts: async (shortcuts: any) => tauriInvoke("save_shortcuts", { shortcuts }),
       getAssetBasePath: async () => tauriInvoke("get_asset_base_path"),
       setRecordingState: async (recording: boolean) => tauriInvoke("set_recording_state", { recording }),
       getCursorTelemetry: async (videoPath?: string) => tauriInvoke("get_cursor_telemetry", { videoPath }),
@@ -129,6 +132,14 @@ if (typeof window !== 'undefined') {
       storeRecordedVideo: async () => ({ success: true }),
       storeRecordedSession: async () => ({ success: true }),
       getRecordedVideoPath: async () => ({ success: false, error: 'Web mock' }),
+      getPlatform: async () => {
+        if (typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform)) {
+          return 'darwin';
+        }
+        return 'win32';
+      },
+      getShortcuts: async () => null,
+      saveShortcuts: async () => ({ success: true }),
       getAssetBasePath: async () => '',
       setRecordingState: async () => {},
       getCursorTelemetry: async () => generateMockCursorTelemetry(),

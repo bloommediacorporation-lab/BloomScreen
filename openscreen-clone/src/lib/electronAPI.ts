@@ -69,6 +69,21 @@ if (!window.electronAPI) {
 			return result as { success: boolean; path?: string; message?: string; error?: string };
 		},
 
+		getPlatform: async () => {
+			const result = await tauriAPI.getPlatform();
+			return (result as unknown as string) ?? "win32";
+		},
+
+		getShortcuts: async () => {
+			const result = await tauriAPI.getShortcuts();
+			return (result as unknown) ?? null;
+		},
+
+		saveShortcuts: async (shortcuts) => {
+			const result = await tauriAPI.saveShortcuts(shortcuts);
+			return result as { success?: boolean; error?: string };
+		},
+
 		getAssetBasePath: async () => {
 			const result = await tauriAPI.getAssetBasePath();
 			return (result as unknown as string) ?? null;
