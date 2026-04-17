@@ -326,6 +326,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 	) => {
 		const playableVideoPath = useResolvedMediaSrc(videoPath);
 		const playableWebcamVideoPath = useResolvedMediaSrc(webcamVideoPath);
+		const hasPlayableVideoPath = Boolean(playableVideoPath);
 
 		const videoRef = useRef<HTMLVideoElement | null>(null);
 		const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1630,30 +1631,37 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					isPlaying={isPlaying}
 					visible={showShortcutsOverlay}
 				/>
-				<video
-					ref={videoRef}
-					src={playableVideoPath}
-					className="hidden"
-					preload="metadata"
-					playsInline
-					onLoadedMetadata={handleLoadedMetadata}
-					onDurationChange={(e) => {
-						onDurationChange(e.currentTarget.duration);
-					}}
-					onError={(e) => {
-						const video = e.currentTarget;
-						const details = {
-							src: video.currentSrc,
-							readyState: video.readyState,
-							networkState: video.networkState,
-							error: describeMediaError(video.error),
-						};
-						console.error("[VideoPlayback] video element error", details);
-						onError(
-							`Failed to load video (${details.error}, networkState=${details.networkState}, readyState=${details.readyState})`,
-						);
-					}}
-				/>
+				{hasPlayableVideoPath ? (
+					<video
+						ref={videoRef}
+						src={playableVideoPath}
+						className="hidden"
+						preload="metadata"
+						playsInline
+						onLoadedMetadata={handleLoadedMetadata}
+						onDurationChange={(e) => {
+							onDurationChange(e.currentTarget.duration);
+						}}
+						onError={(e) => {
+							const video = e.currentTarget;
+							if (!video.currentSrc) {
+								console.warn("[VideoPlayback] ignored video error with empty src");
+								return;
+							}
+
+							const details = {
+								src: video.currentSrc,
+								readyState: video.readyState,
+								networkState: video.networkState,
+								error: describeMediaError(video.error),
+							};
+							console.error("[VideoPlayback] video element error", details);
+							onError(
+								`Failed to load video (${details.error}, networkState=${details.networkState}, readyState=${details.readyState})`,
+							);
+						}}
+					/>
+				) : null}
 			</div>
 		);
 	},
